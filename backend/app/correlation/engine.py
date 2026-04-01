@@ -8,6 +8,10 @@ SEVERITY_THRESHOLDS = [
     ("low", 0),
 ]
 
+POWERSHELL_NAMES = frozenset({
+    "powershell.exe", "pwsh.exe", "powershell_ise.exe",
+})
+
 
 def _to_utc(dt: Any) -> datetime:
     """Normalize naive/aware datetimes to timezone-aware UTC."""
@@ -33,7 +37,7 @@ def _same_host_recent_anomalies(
 
 
 class CorrelationEngine:
-    """Transparent rules + scoring correlation layer."""
+    """Transparent rules + scoring correlation layer (10 rules)."""
 
     def evaluate(
         self,
@@ -43,6 +47,9 @@ class CorrelationEngine:
         risk = 0
         triggered: list[str] = []
         features = alert_data.get("features", {})
+        context = alert_data.get("context", {})
+
+        # --- Original rules ---
 
         if alert_data.get("anomaly_score", 0) > 0.3:
             risk += 2
@@ -71,6 +78,41 @@ class CorrelationEngine:
         if consecutive >= 3:
             risk += 2
             triggered.append("consecutive_low_confidence_escalation")
+
+        # --- New rules ---
+
+        new_procs = {p.lower() for p in (context.get("top_new_processes") or [])}
+        if (
+            features.get("new_process_count", 0) > 2
+            and new_procs & POWERSHELL_NAMES
+        ):
+            risk += 2
+            triggered.append("powershell_encoded_command")
+
+        if features.get("sensitive_file_access_count", 0) > 0:
+            risk += 3
+            triggered.append("credential_access_indicator")
+
+        if (
+            features.get("unique_dest_ips", 0) > 5
+            and features.get("privileged_process_count", 0) > 0
+        ):
+            risk += 2
+            triggered.append("lateral_movement_indicator")
+
+        if (
+            features.get("dns_query_count", 0) > 20
+            and features.get("outbound_conn_count", 0) > 5
+        ):
+            risk += 2
+            triggered.append("c2_beaconing")
+
+        if (
+            features.get("unusual_hour_flag", 0)
+            and alert_data.get("anomaly_score", 0) > 0.3
+        ):
+            risk += 1
+            triggered.append("off_hours_escalation")
 
         severity = "low"
         for sev, threshold in SEVERITY_THRESHOLDS:

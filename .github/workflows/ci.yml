@@ -6,34 +6,33 @@ on:
   pull_request:
     branches: [main]
 
+env:
+  IDS_TESTING: "true"
+  IDS_JWT_SECRET: "ci-test-secret"
+  IDS_ADMIN_PASSWORD: "ci-test-password"
+
 jobs:
   lint-backend:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: backend
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
       - run: pip install ruff mypy
-      - run: ruff check app/ ../tests/
-      - run: mypy app/ --ignore-missing-imports
+      - run: ruff check backend/app/ tests/
+      - run: mypy backend/app/ --ignore-missing-imports
 
   test-backend:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: backend
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: pip install -r requirements.txt
+      - run: pip install -r backend/requirements.txt
       - run: pip install pytest httpx
-      - run: pytest ../tests/ -v
+      - run: pytest tests/ -v
 
   lint-frontend:
     runs-on: ubuntu-latest

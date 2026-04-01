@@ -1,4 +1,5 @@
 import logging
+import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 
@@ -6,6 +7,9 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 
 from jose import JWTError, jwt
 
@@ -13,6 +17,8 @@ from app.config import (
     API_KEY, MIN_TRAINING_SAMPLES,
     JWT_SECRET, JWT_ALGORITHM, JWT_EXPIRE_MINUTES,
     ADMIN_USERNAME, ADMIN_PASSWORD,
+    CORS_ORIGINS, AUTH_RATE_LIMIT,
+    validate_security_defaults,
 )
 from app.db.session import init_db
 from app.services.orchestrator import get_orchestrator
@@ -20,10 +26,27 @@ from app.api.routes import events, features, alerts, incidents, hosts, metrics
 from app.api.routes.ws import router as ws_router, manager as ws_manager
 from app.api.routes.prometheus import router as prom_router
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-)
+try:
+    from pythonjsonlogger import jsonlogger
+
+    handler = logging.StreamHandler()
+    handler.setFormatter(
+        jsonlogger.JsonFormatter(
+            "%(asctime)s %(levelname)s %(name)s %(message)s",
+            rename_fields={"asctime": "timestamp", "levelname": "level"},
+        )
+    )
+    logging.root.handlers = [handler]
+    logging.root.setLevel(logging.INFO)
+except ImportError:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    )
+
+validate_security_defaults()
+
+limiter = Limiter(key_func=get_remote_address)
 
 orchestrator = get_orchestrator()
 
@@ -40,16 +63,30 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="IDS - Behavior-Based Intrusion Detection",
-    version="2.0.0",
+    version="3.0.0",
     lifespan=lifespan,
 )
 
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=CORS_ORIGINS,
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "X-API-Key", "Content-Type"],
 )
+
+
+# ---- Request-ID middleware for structured log correlation ----
+
+
+@app.middleware("http")
+async def add_request_id(request: Request, call_next):
+    request_id = request.headers.get("X-Request-ID", str(uuid.uuid4()))
+    response = await call_next(request)
+    response.headers["X-Request-ID"] = request_id
+    return response
 
 
 # ---- Authentication middleware (supports both legacy API key and JWT) ----
@@ -95,7 +132,8 @@ class TokenResponse(BaseModel):
 
 
 @app.post("/auth/token", response_model=TokenResponse, tags=["Auth"])
-def login(body: TokenRequest):
+@limiter.limit(AUTH_RATE_LIMIT)
+def login(request: Request, body: TokenRequest):
     if body.username != ADMIN_USERNAME or body.password != ADMIN_PASSWORD:
         raise HTTPException(status_code=401, detail="Invalid credentials")
     expire = datetime.now(timezone.utc) + timedelta(minutes=JWT_EXPIRE_MINUTES)
@@ -146,7 +184,8 @@ def force_train():
 def simulate_attack(scenario: str = "brute_force_portscan"):
     """Inject synthetic attack events for live demo purposes.
 
-    Supported scenarios: brute_force_portscan, data_exfiltration
+    Supported scenarios: brute_force_portscan, data_exfiltration,
+    lateral_movement, ransomware_staging, c2_beaconing, privilege_escalation
     """
     import random
     from app.db.session import SessionLocal
@@ -190,6 +229,7 @@ def simulate_attack(scenario: str = "brute_force_portscan"):
                 "pid": random.randint(5000, 9999),
                 "cpu_percent": random.uniform(15.0, 85.0),
             })
+
     elif scenario == "data_exfiltration":
         for i in range(3):
             events.append({
@@ -216,6 +256,160 @@ def simulate_attack(scenario: str = "brute_force_portscan"):
                 "pid": random.randint(5000, 9999),
                 "cpu_percent": random.uniform(20.0, 60.0),
             })
+
+    elif scenario == "lateral_movement":
+        target_hosts = [f"10.0.{random.randint(1, 5)}.{random.randint(10, 250)}" for _ in range(8)]
+        for ip in target_hosts:
+            events.append({
+                "host_id": HOST_ID,
+                "type": "connection",
+                "timestamp": now.isoformat(),
+                "remote_ip": ip,
+                "remote_port": random.choice([445, 3389, 5985, 22]),
+                "process_name": random.choice(["svchost.exe", "lsass.exe"]),
+            })
+        for _ in range(3):
+            events.append({
+                "host_id": HOST_ID,
+                "type": "new_process",
+                "timestamp": now.isoformat(),
+                "name": random.choice(["net.exe", "wmic.exe", "psexec.exe"]),
+                "parent_name": "cmd.exe",
+                "pid": random.randint(5000, 9999),
+                "cpu_percent": random.uniform(5.0, 30.0),
+            })
+        events.append({
+            "host_id": HOST_ID,
+            "type": "login_success",
+            "timestamp": now.isoformat(),
+            "user": "admin",
+            "source_ip": target_hosts[0],
+        })
+        events.append({
+            "host_id": HOST_ID,
+            "type": "file_access",
+            "timestamp": now.isoformat(),
+            "path": r"C:\Windows\System32\config\SAM",
+            "process_name": "lsass.exe",
+        })
+
+    elif scenario == "ransomware_staging":
+        for _ in range(5):
+            events.append({
+                "host_id": HOST_ID,
+                "type": "new_process",
+                "timestamp": now.isoformat(),
+                "name": random.choice(["vssadmin.exe", "wbadmin.exe", "bcdedit.exe"]),
+                "parent_name": "cmd.exe",
+                "pid": random.randint(5000, 9999),
+                "cpu_percent": random.uniform(30.0, 90.0),
+                "memory_percent": random.uniform(40.0, 85.0),
+            })
+        events.append({
+            "host_id": HOST_ID,
+            "type": "new_process",
+            "timestamp": now.isoformat(),
+            "name": "powershell.exe",
+            "parent_name": "explorer.exe",
+            "pid": random.randint(5000, 9999),
+            "cpu_percent": random.uniform(50.0, 95.0),
+            "memory_percent": random.uniform(60.0, 95.0),
+        })
+        for ext in ["docx", "xlsx", "pdf", "jpg", "sql"]:
+            events.append({
+                "host_id": HOST_ID,
+                "type": "file_access",
+                "timestamp": now.isoformat(),
+                "path": f"C:\\Users\\admin\\Documents\\report.{ext}.encrypted",
+                "process_name": "svchost.exe",
+            })
+        events.append({
+            "host_id": HOST_ID,
+            "type": "connection",
+            "timestamp": now.isoformat(),
+            "remote_ip": f"185.141.{random.randint(60, 63)}.{random.randint(1, 254)}",
+            "remote_port": 443,
+            "process_name": "svchost.exe",
+        })
+
+    elif scenario == "c2_beaconing":
+        c2_ip = f"198.51.100.{random.randint(1, 254)}"
+        for i in range(20):
+            events.append({
+                "host_id": HOST_ID,
+                "type": "connection",
+                "timestamp": (now - timedelta(seconds=i * 30)).isoformat(),
+                "remote_ip": c2_ip,
+                "remote_port": random.choice([443, 8080, 8443]),
+                "process_name": "svchost.exe",
+            })
+        for i in range(30):
+            events.append({
+                "host_id": HOST_ID,
+                "type": "dns_query",
+                "timestamp": (now - timedelta(seconds=i * 10)).isoformat(),
+                "domain": f"x{random.randint(1000, 9999)}.beacon-{random.randint(1, 5)}.example.com",
+            })
+        events.append({
+            "host_id": HOST_ID,
+            "type": "net_io",
+            "timestamp": now.isoformat(),
+            "bytes_sent": random.randint(500, 2000),
+            "bytes_received": random.randint(100, 500),
+        })
+        events.append({
+            "host_id": HOST_ID,
+            "type": "new_process",
+            "timestamp": now.isoformat(),
+            "name": "rundll32.exe",
+            "parent_name": "svchost.exe",
+            "pid": random.randint(5000, 9999),
+            "cpu_percent": random.uniform(1.0, 5.0),
+        })
+
+    elif scenario == "privilege_escalation":
+        for _ in range(4):
+            events.append({
+                "host_id": HOST_ID,
+                "type": "new_process",
+                "timestamp": now.isoformat(),
+                "name": random.choice(["whoami.exe", "net.exe", "sc.exe", "reg.exe"]),
+                "parent_name": "powershell.exe",
+                "pid": random.randint(5000, 9999),
+                "cpu_percent": random.uniform(5.0, 40.0),
+            })
+        events.append({
+            "host_id": HOST_ID,
+            "type": "file_access",
+            "timestamp": now.isoformat(),
+            "path": r"C:\Windows\System32\config\SECURITY",
+            "process_name": "mimikatz.exe",
+        })
+        events.append({
+            "host_id": HOST_ID,
+            "type": "file_access",
+            "timestamp": now.isoformat(),
+            "path": r"C:\Windows\System32\lsass.exe",
+            "process_name": "procdump.exe",
+        })
+        events.append({
+            "host_id": HOST_ID,
+            "type": "new_process",
+            "timestamp": now.isoformat(),
+            "name": "powershell.exe",
+            "parent_name": "wmiprvse.exe",
+            "pid": random.randint(5000, 9999),
+            "cpu_percent": random.uniform(30.0, 80.0),
+            "memory_percent": random.uniform(50.0, 90.0),
+        })
+        events.append({
+            "host_id": HOST_ID,
+            "type": "login_success",
+            "timestamp": now.isoformat(),
+            "user": "SYSTEM",
+            "source": "token_impersonation",
+        })
+
     else:
         raise HTTPException(status_code=400, detail=f"Unknown scenario: {scenario}")
 

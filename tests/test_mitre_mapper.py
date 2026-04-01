@@ -1,4 +1,4 @@
-from backend.app.mitre.mapper import MitreMapper
+from app.mitre.mapper import MitreMapper
 
 
 def test_empty_rules():

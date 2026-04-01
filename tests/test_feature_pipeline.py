@@ -1,8 +1,3 @@
-import sys
-import os
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
-
 from datetime import datetime
 from app.features.pipeline import compute_features
 

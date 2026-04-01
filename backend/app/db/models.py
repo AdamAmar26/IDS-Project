@@ -50,6 +50,12 @@ class FeatureWindow(Base):
     new_process_count = Column(Integer, default=0)
     inbound_outbound_ratio = Column(Float, default=0.0)
     unusual_hour_flag = Column(Boolean, default=False)
+    privileged_process_count = Column(Integer, default=0)
+    parent_child_anomaly_score = Column(Float, default=0.0)
+    dns_query_count = Column(Integer, default=0)
+    unique_parent_processes = Column(Integer, default=0)
+    memory_usage_spike = Column(Float, default=0.0)
+    sensitive_file_access_count = Column(Integer, default=0)
     context = Column(JSON, default=dict)
 
     alerts = relationship("Alert", back_populates="feature_window")
@@ -64,6 +70,7 @@ class Alert(Base):
     anomaly_score = Column(Float, nullable=False)
     is_anomaly = Column(Boolean, nullable=False)
     top_features = Column(JSON)
+    verdict = Column(String, nullable=True)
     created_at = Column(DateTime, default=_utcnow)
 
     feature_window = relationship("FeatureWindow", back_populates="alerts")
@@ -86,12 +93,28 @@ class Incident(Base):
     mitre_tactics = Column(JSON, default=list)
     mitre_techniques = Column(JSON, default=list)
     threat_intel_hits = Column(JSON, default=list)
+    kill_chain_phase = Column(String, nullable=True)
     created_at = Column(DateTime, default=_utcnow)
     updated_at = Column(DateTime, default=_utcnow, onupdate=_utcnow)
 
     alerts = relationship(
         "Alert", secondary=incident_alerts, back_populates="incidents",
     )
+    notes = relationship(
+        "IncidentNote", back_populates="incident", order_by="IncidentNote.created_at",
+    )
+
+
+class IncidentNote(Base):
+    __tablename__ = "incident_notes"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    incident_id = Column(Integer, ForeignKey("incidents.id"), nullable=False, index=True)
+    author = Column(String, nullable=False)
+    body = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=_utcnow)
+
+    incident = relationship("Incident", back_populates="notes")
 
 
 class HostBaseline(Base):

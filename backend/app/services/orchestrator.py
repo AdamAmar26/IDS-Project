@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import threading
 from datetime import datetime, timezone, timedelta
@@ -8,6 +9,7 @@ import numpy as np
 from app.config import (
     HOST_ID, WINDOW_SECONDS, FEATURE_NAMES,
     MIN_TRAINING_SAMPLES, RETRAIN_INTERVAL_HOURS,
+    RAW_EVENT_RETENTION_DAYS, FEATURE_WINDOW_RETENTION_DAYS,
 )
 from app.db.session import SessionLocal
 from app.db.models import (
@@ -21,6 +23,7 @@ from app.explanation.llm_explainer import OllamaExplainer
 from app.explanation.templates import AlertExplainer
 from app.mitre.mapper import MitreMapper
 from app.threat_intel.enricher import ThreatIntelEnricher
+from app.threat_intel.feed_updater import FeedUpdateScheduler
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +39,7 @@ class Orchestrator:
         self.template_explainer = AlertExplainer()
         self.mitre_mapper = MitreMapper()
         self.threat_enricher = ThreatIntelEnricher()
+        self.feed_updater = FeedUpdateScheduler()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._last_retrain_time = datetime.now(timezone.utc)
@@ -57,10 +61,12 @@ class Orchestrator:
         self._stop.clear()
         self._thread = threading.Thread(target=self._run_loop, daemon=True)
         self._thread.start()
+        self.feed_updater.start()
         logger.info("Orchestrator started (window=%ds)", WINDOW_SECONDS)
 
     def stop(self):
         self._stop.set()
+        self.feed_updater.stop()
         if self._thread:
             self._thread.join(timeout=10)
         logger.info("Orchestrator stopped")
@@ -114,6 +120,7 @@ class Orchestrator:
         hours_since = (now - self._last_retrain_time).total_seconds() / 3600
         if hours_since >= RETRAIN_INTERVAL_HOURS:
             self._periodic_retrain()
+            self._prune_old_data()
 
         # --- detection phase ---
         score, is_anomaly, top_feats = self.detector.score(features)
@@ -148,7 +155,18 @@ class Orchestrator:
             connected_ips = list(
                 (context or {}).get("top_connected_processes", {}).keys()
             )
-            threat_hits = self.threat_enricher.check_local(connected_ips)
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    threat_hits = self.threat_enricher.check_local(connected_ips)
+                else:
+                    threat_hits = loop.run_until_complete(
+                        self.threat_enricher.enrich(connected_ips)
+                    )
+            except RuntimeError:
+                threat_hits = asyncio.run(
+                    self.threat_enricher.enrich(connected_ips)
+                )
 
             explanation = self.llm_explainer.explain_incident_sync(
                 host_id=HOST_ID,
@@ -301,14 +319,63 @@ class Orchestrator:
             )
             if len(recent_windows) < MIN_TRAINING_SAMPLES:
                 return
+
+            fw_ids = [w.id for w in recent_windows]
+            fp_fw_ids: set[int] = set()
+            if fw_ids:
+                fp_alerts = (
+                    db.query(Alert.feature_window_id)
+                    .filter(
+                        Alert.feature_window_id.in_(fw_ids),
+                        Alert.verdict == "false_positive",
+                    )
+                    .all()
+                )
+                fp_fw_ids = {row[0] for row in fp_alerts if row[0]}
+
             recent_data = [
                 [float(getattr(w, name, 0)) for name in FEATURE_NAMES]
                 for w in recent_windows
+                if w.id not in fp_fw_ids
             ]
             if self.detector.retrain(recent_data):
                 self._update_baseline()
                 self._last_retrain_time = datetime.now(timezone.utc)
                 logger.info("Periodic model retrain completed")
+        finally:
+            db.close()
+
+    def _prune_old_data(self):
+        """Delete raw events and feature windows beyond retention thresholds."""
+        db = SessionLocal()
+        try:
+            raw_cutoff = datetime.now(timezone.utc) - timedelta(
+                days=RAW_EVENT_RETENTION_DAYS
+            )
+            deleted_raw = (
+                db.query(RawEvent)
+                .filter(RawEvent.timestamp < raw_cutoff)
+                .delete(synchronize_session=False)
+            )
+
+            fw_cutoff = datetime.now(timezone.utc) - timedelta(
+                days=FEATURE_WINDOW_RETENTION_DAYS
+            )
+            deleted_fw = (
+                db.query(FeatureWindow)
+                .filter(FeatureWindow.window_end < fw_cutoff)
+                .delete(synchronize_session=False)
+            )
+            db.commit()
+            if deleted_raw or deleted_fw:
+                logger.info(
+                    "Data retention: pruned %d raw events, %d feature windows",
+                    deleted_raw,
+                    deleted_fw,
+                )
+        except Exception:
+            db.rollback()
+            logger.exception("Data retention pruning failed")
         finally:
             db.close()
 
@@ -334,6 +401,8 @@ class Orchestrator:
             mitre_techniques = (mitre_info or {}).get("techniques", [])
             ti_hits = [h.get("ip", "") for h in (threat_hits or [])]
 
+            kill_chain = (mitre_info or {}).get("kill_chain_phase", "unknown")
+
             if open_incident:
                 open_incident.risk_score = max(
                     open_incident.risk_score, correlation["risk_score"],
@@ -345,6 +414,7 @@ class Orchestrator:
                 open_incident.mitre_tactics = mitre_tactics
                 open_incident.mitre_techniques = mitre_techniques
                 open_incident.threat_intel_hits = ti_hits
+                open_incident.kill_chain_phase = kill_chain
                 open_incident.updated_at = datetime.now(timezone.utc)
                 if alert and alert not in open_incident.alerts:
                     open_incident.alerts.append(alert)
@@ -360,6 +430,7 @@ class Orchestrator:
                     mitre_tactics=mitre_tactics,
                     mitre_techniques=mitre_techniques,
                     threat_intel_hits=ti_hits,
+                    kill_chain_phase=kill_chain,
                 )
                 if alert:
                     inc.alerts.append(alert)

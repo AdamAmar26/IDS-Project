@@ -1,12 +1,14 @@
+import hashlib
+import hmac
 import os
 import logging
-import pickle
 from typing import Dict, List, Tuple, Optional
 
+import joblib
 import numpy as np
 from sklearn.ensemble import IsolationForest
 
-from app.config import FEATURE_NAMES, MODEL_PATH, MIN_TRAINING_SAMPLES, CONTAMINATION
+from app.config import FEATURE_NAMES, MODEL_PATH, MIN_TRAINING_SAMPLES, CONTAMINATION, JWT_SECRET
 
 logger = logging.getLogger(__name__)
 
@@ -16,6 +18,16 @@ try:
     _shap_available = True
 except ImportError:
     logger.warning("shap not installed — falling back to z-score feature attribution")
+
+_HMAC_SUFFIX = ".hmac"
+
+
+def _compute_file_hmac(path: str) -> str:
+    h = hmac.new(JWT_SECRET.encode(), digestmod=hashlib.sha256)
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(8192), b""):
+            h.update(chunk)
+    return h.hexdigest()
 
 
 class AnomalyDetector:
@@ -33,26 +45,43 @@ class AnomalyDetector:
         return [float(features.get(name, 0)) for name in self.feature_names]
 
     # ------------------------------------------------------------------
-    # Persistence
+    # Persistence (joblib + HMAC integrity)
     # ------------------------------------------------------------------
 
     def _load_model(self):
-        if os.path.exists(MODEL_PATH):
-            try:
-                with open(MODEL_PATH, "rb") as fh:
-                    data = pickle.load(fh)
-                self.model = data["model"]
-                self.training_data = data.get("training_data", [])
-                self.is_trained = True
-                self._build_explainer()
-                logger.info("Loaded trained model with %d samples", len(self.training_data))
-            except Exception as exc:
-                logger.warning("Could not load model: %s", exc)
+        if not os.path.exists(MODEL_PATH):
+            return
+        hmac_path = MODEL_PATH + _HMAC_SUFFIX
+        if os.path.exists(hmac_path):
+            expected = open(hmac_path).read().strip()
+            actual = _compute_file_hmac(MODEL_PATH)
+            if not hmac.compare_digest(expected, actual):
+                logger.error(
+                    "Model file HMAC mismatch — refusing to load potentially "
+                    "tampered model at %s", MODEL_PATH,
+                )
+                return
+        else:
+            logger.warning("No HMAC file for model — loading without integrity check")
+        try:
+            data = joblib.load(MODEL_PATH)
+            self.model = data["model"]
+            self.training_data = data.get("training_data", [])
+            self.is_trained = True
+            self._build_explainer()
+            logger.info("Loaded trained model with %d samples", len(self.training_data))
+        except Exception as exc:
+            logger.warning("Could not load model: %s", exc)
 
     def _save_model(self):
         os.makedirs(os.path.dirname(MODEL_PATH) or ".", exist_ok=True)
-        with open(MODEL_PATH, "wb") as fh:
-            pickle.dump({"model": self.model, "training_data": self.training_data}, fh)
+        joblib.dump(
+            {"model": self.model, "training_data": self.training_data},
+            MODEL_PATH,
+        )
+        sig = _compute_file_hmac(MODEL_PATH)
+        with open(MODEL_PATH + _HMAC_SUFFIX, "w") as f:
+            f.write(sig)
 
     def _build_explainer(self):
         if _shap_available and self.model is not None:

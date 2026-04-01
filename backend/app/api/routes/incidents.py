@@ -1,12 +1,19 @@
+import csv
+import io
 from datetime import datetime
 from typing import Optional, List
 
 from fastapi import APIRouter, Depends, Query, HTTPException
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
-from app.db.models import Incident
-from app.api.schemas import IncidentOut
+from app.db.models import Incident, IncidentNote
+from app.api.schemas import (
+    IncidentOut,
+    IncidentNoteIn,
+    IncidentNoteOut,
+)
 
 router = APIRouter()
 
@@ -24,6 +31,7 @@ def _to_out(inc: Incident) -> IncidentOut:
         mitre_tactics=inc.mitre_tactics or [],
         mitre_techniques=inc.mitre_techniques or [],
         threat_intel_hits=inc.threat_intel_hits or [],
+        kill_chain_phase=inc.kill_chain_phase,
         created_at=inc.created_at,
         updated_at=inc.updated_at,
         alert_ids=[a.id for a in inc.alerts],
@@ -69,3 +77,106 @@ def update_status(incident_id: int, status: str, db: Session = Depends(get_db)):
     inc.status = status
     db.commit()
     return {"id": incident_id, "status": status}
+
+
+# ---- Analyst notes ----
+
+
+@router.get("/{incident_id}/notes", response_model=List[IncidentNoteOut])
+def list_notes(incident_id: int, db: Session = Depends(get_db)):
+    inc = db.get(Incident, incident_id)
+    if not inc:
+        raise HTTPException(status_code=404, detail="Incident not found")
+    return inc.notes
+
+
+@router.post("/{incident_id}/notes", response_model=IncidentNoteOut, status_code=201)
+def add_note(incident_id: int, body: IncidentNoteIn, db: Session = Depends(get_db)):
+    inc = db.get(Incident, incident_id)
+    if not inc:
+        raise HTTPException(status_code=404, detail="Incident not found")
+    note = IncidentNote(
+        incident_id=incident_id,
+        author=body.author,
+        body=body.body,
+    )
+    db.add(note)
+    db.commit()
+    db.refresh(note)
+    return note
+
+
+# ---- Export / Reporting ----
+
+
+@router.get("/{incident_id}/report")
+def export_report(
+    incident_id: int,
+    fmt: str = Query("json", alias="format"),
+    db: Session = Depends(get_db),
+):
+    """Export a full incident report including timeline, alerts, MITRE, and notes."""
+    inc = db.get(Incident, incident_id)
+    if not inc:
+        raise HTTPException(status_code=404, detail="Incident not found")
+
+    alert_rows = [
+        {
+            "alert_id": a.id,
+            "anomaly_score": a.anomaly_score,
+            "is_anomaly": a.is_anomaly,
+            "verdict": a.verdict,
+            "created_at": a.created_at.isoformat() if a.created_at else "",
+            "top_features": a.top_features,
+        }
+        for a in inc.alerts
+    ]
+    note_rows = [
+        {
+            "author": n.author,
+            "body": n.body,
+            "created_at": n.created_at.isoformat() if n.created_at else "",
+        }
+        for n in inc.notes
+    ]
+
+    report = {
+        "incident_id": inc.id,
+        "host_id": inc.host_id,
+        "status": inc.status,
+        "severity": inc.severity,
+        "risk_score": inc.risk_score,
+        "kill_chain_phase": inc.kill_chain_phase,
+        "summary": inc.summary,
+        "explanation": inc.explanation,
+        "suggested_actions": inc.suggested_actions,
+        "mitre_tactics": inc.mitre_tactics or [],
+        "mitre_techniques": inc.mitre_techniques or [],
+        "threat_intel_hits": inc.threat_intel_hits or [],
+        "created_at": inc.created_at.isoformat() if inc.created_at else "",
+        "updated_at": inc.updated_at.isoformat() if inc.updated_at else "",
+        "alerts": alert_rows,
+        "notes": note_rows,
+    }
+
+    if fmt == "csv":
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow([
+            "alert_id", "anomaly_score", "is_anomaly", "verdict", "created_at",
+        ])
+        for a in alert_rows:
+            writer.writerow([
+                a["alert_id"], a["anomaly_score"], a["is_anomaly"],
+                a["verdict"], a["created_at"],
+            ])
+        buf.seek(0)
+        return StreamingResponse(
+            buf,
+            media_type="text/csv",
+            headers={
+                "Content-Disposition": f"attachment; filename=incident_{incident_id}.csv"
+            },
+        )
+
+    return report
