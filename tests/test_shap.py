@@ -80,7 +80,7 @@ def test_zscore_fallback():
     features = {name: 0.0 for name in det.feature_names}
     features["failed_login_count"] = 100.0
 
-    _, _, top = det._zscore_top_features(
+    top = det._zscore_top_features(
         np.array([det._features_to_vector(features)])
     )
     assert len(top) <= 5
