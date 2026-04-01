@@ -3,7 +3,6 @@ import os
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
 
-import json
 import pytest
 from fastapi.testclient import TestClient
 from app.main import app
@@ -23,7 +22,7 @@ def test_websocket_connect(client):
 def test_websocket_receives_broadcast(client):
     from app.api.routes.ws import manager
 
-    with client.websocket_connect("/ws/events") as ws:
+    with client.websocket_connect("/ws/events"):
         manager.enqueue("test_alert", {"host_id": "TEST", "score": 0.5})
 
         import time

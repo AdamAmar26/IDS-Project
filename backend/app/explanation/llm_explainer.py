@@ -47,7 +47,7 @@ def _build_analyst_prompt(
     ti_section = ""
     if threat_intel_hits:
         ti_lines = [f"  {h['ip']}: {h['detail']}" for h in threat_intel_hits]
-        ti_section = f"\nThreat intelligence hits:\n" + "\n".join(ti_lines)
+        ti_section = "\nThreat intelligence hits:\n" + "\n".join(ti_lines)
 
     return f"""You are a senior SOC analyst. Analyze this security incident and provide:
 1. A concise 2-3 sentence executive summary

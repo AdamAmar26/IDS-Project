@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 
 from jose import JWTError, jwt
 
@@ -80,8 +81,6 @@ async def check_auth(request: Request, call_next):
 
 
 # ---- JWT token endpoint ----
-
-from pydantic import BaseModel
 
 
 class TokenRequest(BaseModel):
