@@ -53,6 +53,9 @@ class IncidentOut(BaseModel):
     summary: str
     explanation: str
     suggested_actions: str
+    mitre_tactics: List[Dict[str, Any]] = []
+    mitre_techniques: List[Dict[str, Any]] = []
+    threat_intel_hits: List[str] = []
     created_at: datetime
     updated_at: datetime
     alert_ids: List[int] = []

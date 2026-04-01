@@ -12,6 +12,15 @@ CONTAMINATION = float(os.environ.get("IDS_CONTAMINATION", "0.05"))
 RETRAIN_INTERVAL_HOURS = int(os.environ.get("IDS_RETRAIN_HOURS", "24"))
 API_KEY = os.environ.get("IDS_API_KEY", "")
 
+OLLAMA_URL = os.environ.get("IDS_OLLAMA_URL", "http://localhost:11434")
+OLLAMA_MODEL = os.environ.get("IDS_OLLAMA_MODEL", "llama3")
+
+JWT_SECRET = os.environ.get("IDS_JWT_SECRET", "change-me-in-production")
+JWT_ALGORITHM = "HS256"
+JWT_EXPIRE_MINUTES = int(os.environ.get("IDS_JWT_EXPIRE_MINUTES", "60"))
+ADMIN_USERNAME = os.environ.get("IDS_ADMIN_USERNAME", "admin")
+ADMIN_PASSWORD = os.environ.get("IDS_ADMIN_PASSWORD", "admin")
+
 FEATURE_NAMES = [
     "failed_login_count",
     "successful_login_count",

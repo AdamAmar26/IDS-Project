@@ -1,7 +1,7 @@
 import logging
 import threading
 from datetime import datetime, timezone, timedelta
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Callable, Optional
 
 import numpy as np
 
@@ -17,7 +17,10 @@ from app.collectors.host_windows import WindowsHostCollector
 from app.features.pipeline import compute_features, compute_context
 from app.detection.model import AnomalyDetector
 from app.correlation.engine import CorrelationEngine
+from app.explanation.llm_explainer import OllamaExplainer
 from app.explanation.templates import AlertExplainer
+from app.mitre.mapper import MitreMapper
+from app.threat_intel.enricher import ThreatIntelEnricher
 
 logger = logging.getLogger(__name__)
 
@@ -29,10 +32,24 @@ class Orchestrator:
         self.collector = WindowsHostCollector(host_id=HOST_ID)
         self.detector = AnomalyDetector()
         self.correlator = CorrelationEngine()
-        self.explainer = AlertExplainer()
+        self.llm_explainer = OllamaExplainer()
+        self.template_explainer = AlertExplainer()
+        self.mitre_mapper = MitreMapper()
+        self.threat_enricher = ThreatIntelEnricher()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._last_retrain_time = datetime.now(timezone.utc)
+        self._broadcast_callbacks: List[Callable] = []
+
+    def register_broadcast(self, callback: Callable):
+        self._broadcast_callbacks.append(callback)
+
+    def _broadcast(self, event_type: str, payload: Dict[str, Any]):
+        for cb in self._broadcast_callbacks:
+            try:
+                cb(event_type, payload)
+            except Exception:
+                logger.debug("Broadcast callback failed", exc_info=True)
 
     def start(self):
         if self._thread and self._thread.is_alive():
@@ -102,6 +119,15 @@ class Orchestrator:
         score, is_anomaly, top_feats = self.detector.score(features)
         alert_id = self._persist_alert(fw_id, score, is_anomaly, top_feats)
 
+        self._broadcast("alert", {
+            "alert_id": alert_id,
+            "host_id": HOST_ID,
+            "anomaly_score": score,
+            "is_anomaly": is_anomaly,
+            "top_features": top_feats,
+            "timestamp": now.isoformat(),
+        })
+
         if not is_anomaly:
             return
 
@@ -116,7 +142,15 @@ class Orchestrator:
         result = self.correlator.evaluate(alert_data, recent)
         if result["should_create_incident"]:
             baseline = self._get_baseline()
-            explanation = self.explainer.explain_incident(
+
+            mitre_info = self.mitre_mapper.map_rules(result["triggered_rules"])
+
+            connected_ips = list(
+                (context or {}).get("top_connected_processes", {}).keys()
+            )
+            threat_hits = self.threat_enricher.check_local(connected_ips)
+
+            explanation = self.llm_explainer.explain_incident_sync(
                 host_id=HOST_ID,
                 risk_score=result["risk_score"],
                 severity=result["severity"],
@@ -125,8 +159,12 @@ class Orchestrator:
                 features=features,
                 baseline=baseline,
                 context=context,
+                mitre_info=mitre_info,
+                threat_intel_hits=threat_hits,
             )
-            self._create_or_update_incident(alert_id, result, explanation)
+            self._create_or_update_incident(
+                alert_id, result, explanation, mitre_info, threat_hits,
+            )
 
     # ------------------------------------------------------------------
     # DB helpers
@@ -275,7 +313,12 @@ class Orchestrator:
             db.close()
 
     def _create_or_update_incident(
-        self, alert_id: int, correlation: Dict, explanation: Dict,
+        self,
+        alert_id: int,
+        correlation: Dict,
+        explanation: Dict,
+        mitre_info: Optional[Dict] = None,
+        threat_hits: Optional[List[Dict]] = None,
     ):
         db = SessionLocal()
         try:
@@ -287,6 +330,10 @@ class Orchestrator:
             )
             alert = db.get(Alert, alert_id)
 
+            mitre_tactics = (mitre_info or {}).get("tactics", [])
+            mitre_techniques = (mitre_info or {}).get("techniques", [])
+            ti_hits = [h.get("ip", "") for h in (threat_hits or [])]
+
             if open_incident:
                 open_incident.risk_score = max(
                     open_incident.risk_score, correlation["risk_score"],
@@ -295,9 +342,13 @@ class Orchestrator:
                 open_incident.summary = explanation["summary"]
                 open_incident.explanation = explanation["explanation"]
                 open_incident.suggested_actions = explanation["suggested_actions"]
+                open_incident.mitre_tactics = mitre_tactics
+                open_incident.mitre_techniques = mitre_techniques
+                open_incident.threat_intel_hits = ti_hits
                 open_incident.updated_at = datetime.now(timezone.utc)
                 if alert and alert not in open_incident.alerts:
                     open_incident.alerts.append(alert)
+                incident_id = open_incident.id
             else:
                 inc = Incident(
                     host_id=HOST_ID,
@@ -306,12 +357,26 @@ class Orchestrator:
                     summary=explanation["summary"],
                     explanation=explanation["explanation"],
                     suggested_actions=explanation["suggested_actions"],
+                    mitre_tactics=mitre_tactics,
+                    mitre_techniques=mitre_techniques,
+                    threat_intel_hits=ti_hits,
                 )
                 if alert:
                     inc.alerts.append(alert)
                 db.add(inc)
+                db.flush()
+                incident_id = inc.id
 
             db.commit()
+
+            self._broadcast("incident", {
+                "incident_id": incident_id,
+                "host_id": HOST_ID,
+                "severity": correlation["severity"],
+                "risk_score": correlation["risk_score"],
+                "mitre_techniques": [t.get("id") for t in mitre_techniques],
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            })
         finally:
             db.close()
 

@@ -7,17 +7,29 @@ services:
       - "8000:8000"
     volumes:
       - ids_data:/app/data
+    environment:
+      - IDS_OLLAMA_URL=http://ollama:11434
     restart: unless-stopped
 
-  dashboard:
-    build: ./dashboard
+  frontend:
+    build: ./frontend
     ports:
-      - "8050:8050"
+      - "3000:3000"
     environment:
-      - IDS_API_URL=http://api:8000
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      - NEXT_PUBLIC_WS_URL=ws://localhost:8000/ws/events
     depends_on:
       - api
     restart: unless-stopped
 
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    restart: unless-stopped
+
 volumes:
   ids_data:
+  ollama_data:

@@ -10,12 +10,20 @@ from app.config import FEATURE_NAMES, MODEL_PATH, MIN_TRAINING_SAMPLES, CONTAMIN
 
 logger = logging.getLogger(__name__)
 
+_shap_available = False
+try:
+    import shap
+    _shap_available = True
+except ImportError:
+    logger.warning("shap not installed — falling back to z-score feature attribution")
+
 
 class AnomalyDetector:
-    """Isolation Forest anomaly detector that trains on baseline windows."""
+    """Isolation Forest anomaly detector with SHAP-based explainability."""
 
     def __init__(self):
         self.model: Optional[IsolationForest] = None
+        self.explainer: Optional["shap.TreeExplainer"] = None
         self.is_trained: bool = False
         self.training_data: List[List[float]] = []
         self.feature_names = FEATURE_NAMES
@@ -36,6 +44,7 @@ class AnomalyDetector:
                 self.model = data["model"]
                 self.training_data = data.get("training_data", [])
                 self.is_trained = True
+                self._build_explainer()
                 logger.info("Loaded trained model with %d samples", len(self.training_data))
             except Exception as exc:
                 logger.warning("Could not load model: %s", exc)
@@ -44,6 +53,14 @@ class AnomalyDetector:
         os.makedirs(os.path.dirname(MODEL_PATH) or ".", exist_ok=True)
         with open(MODEL_PATH, "wb") as fh:
             pickle.dump({"model": self.model, "training_data": self.training_data}, fh)
+
+    def _build_explainer(self):
+        if _shap_available and self.model is not None:
+            try:
+                self.explainer = shap.TreeExplainer(self.model)
+            except Exception as exc:
+                logger.warning("Could not build SHAP explainer: %s", exc)
+                self.explainer = None
 
     # ------------------------------------------------------------------
     # Training
@@ -69,6 +86,7 @@ class AnomalyDetector:
         )
         self.model.fit(X)
         self.is_trained = True
+        self._build_explainer()
         self._save_model()
         logger.info("Model trained on %d samples", len(self.training_data))
         return True
@@ -77,8 +95,44 @@ class AnomalyDetector:
     # Scoring
     # ------------------------------------------------------------------
 
+    def _shap_top_features(self, vector: np.ndarray) -> Dict[str, float]:
+        """Use SHAP TreeExplainer to attribute anomaly to individual features."""
+        if self.explainer is None:
+            return self._zscore_top_features(vector)
+        try:
+            shap_values = self.explainer.shap_values(vector)
+            if shap_values.ndim == 2:
+                sv = shap_values[0]
+            else:
+                sv = shap_values
+            attribution = {
+                name: round(float(sv[i]), 4)
+                for i, name in enumerate(self.feature_names)
+            }
+            top = dict(
+                sorted(attribution.items(), key=lambda x: abs(x[1]), reverse=True)[:5]
+            )
+            return top
+        except Exception as exc:
+            logger.warning("SHAP attribution failed, falling back to z-score: %s", exc)
+            return self._zscore_top_features(vector)
+
+    def _zscore_top_features(self, vector: np.ndarray) -> Dict[str, float]:
+        mean_vec = np.mean(self.training_data, axis=0)
+        std_vec = np.std(self.training_data, axis=0) + 1e-10
+        fv = vector[0] if vector.ndim == 2 else vector
+        deviations = {
+            name: round(abs(float(fv[i]) - float(mean_vec[i])) / float(std_vec[i]), 3)
+            for i, name in enumerate(self.feature_names)
+        }
+        return dict(sorted(deviations.items(), key=lambda x: x[1], reverse=True)[:5])
+
     def score(self, features: Dict[str, float]) -> Tuple[float, bool, Dict[str, float]]:
-        """Return (anomaly_score, is_anomaly, top_deviating_features)."""
+        """Return (anomaly_score, is_anomaly, top_deviating_features).
+
+        Feature attribution uses SHAP TreeExplainer when available, producing
+        signed Shapley values.  Falls back to z-score distance otherwise.
+        """
         if not self.is_trained or self.model is None:
             return 0.0, False, {}
 
@@ -87,14 +141,7 @@ class AnomalyDetector:
         anomaly_score = -raw_score
         is_anomaly = int(self.model.predict(vector)[0]) == -1
 
-        mean_vec = np.mean(self.training_data, axis=0)
-        std_vec = np.std(self.training_data, axis=0) + 1e-10
-        fv = self._features_to_vector(features)
-        deviations = {
-            name: round(abs(fv[i] - mean_vec[i]) / std_vec[i], 3)
-            for i, name in enumerate(self.feature_names)
-        }
-        top = dict(sorted(deviations.items(), key=lambda x: x[1], reverse=True)[:5])
+        top = self._shap_top_features(vector)
 
         return round(anomaly_score, 4), is_anomaly, top
 
@@ -111,6 +158,7 @@ class AnomalyDetector:
         )
         self.model.fit(X)
         self.is_trained = True
+        self._build_explainer()
         self._save_model()
         logger.info("Model retrained on %d samples", len(data))
         return True

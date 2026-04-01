@@ -83,6 +83,9 @@ class Incident(Base):
     summary = Column(Text, default="")
     explanation = Column(Text, default="")
     suggested_actions = Column(Text, default="")
+    mitre_tactics = Column(JSON, default=list)
+    mitre_techniques = Column(JSON, default=list)
+    threat_intel_hits = Column(JSON, default=list)
     created_at = Column(DateTime, default=_utcnow)
     updated_at = Column(DateTime, default=_utcnow, onupdate=_utcnow)
 

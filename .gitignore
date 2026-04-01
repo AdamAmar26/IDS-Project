@@ -9,3 +9,5 @@ data/
 dist/
 build/
 .env
+node_modules/
+.next/

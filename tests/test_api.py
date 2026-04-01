@@ -53,14 +53,45 @@ def test_incident_not_found(client):
     assert r.status_code == 404
 
 
-def test_metrics(client):
-    r = client.get("/metrics")
+def test_metrics_summary(client):
+    r = client.get("/metrics/summary")
     assert r.status_code == 200
     data = r.json()
     assert "total_events" in data
     assert "model_trained" in data
     assert "min_training_samples" in data
     assert "security_log_available" in data
+
+
+def test_prometheus_metrics(client):
+    r = client.get("/metrics")
+    assert r.status_code == 200
+    assert "ids_model_trained" in r.text
+
+
+def test_auth_token(client):
+    r = client.post("/auth/token", json={"username": "admin", "password": "admin"})
+    assert r.status_code == 200
+    data = r.json()
+    assert "access_token" in data
+    assert data["token_type"] == "bearer"
+
+
+def test_auth_token_invalid(client):
+    r = client.post("/auth/token", json={"username": "wrong", "password": "wrong"})
+    assert r.status_code == 401
+
+
+def test_simulate_brute_force(client):
+    r = client.post("/admin/simulate?scenario=brute_force_portscan")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["events_injected"] > 0
+
+
+def test_simulate_unknown_scenario(client):
+    r = client.post("/admin/simulate?scenario=unknown")
+    assert r.status_code == 400
 
 
 def test_force_train_too_few(client):

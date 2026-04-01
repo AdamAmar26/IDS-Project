@@ -1,0 +1,31 @@
+# Local threat intelligence blocklist
+# Format: one IP per line, comments start with #
+# Sources: Firehol Level 1 (sample), Emerging Threats, known C2
+#
+# This is a seed list for demo/development.
+# In production, replace with a full Firehol Level 1 feed or similar.
+185.220.101.1
+185.220.101.2
+185.220.101.3
+185.220.101.4
+185.220.101.5
+45.148.10.1
+45.148.10.2
+45.148.10.3
+89.248.167.131
+89.248.165.0
+92.118.160.1
+92.118.160.2
+178.128.23.9
+162.142.125.0
+167.248.133.0
+198.235.24.1
+198.235.24.2
+71.6.135.131
+71.6.146.186
+71.6.146.185
+80.82.77.33
+80.82.77.139
+93.174.95.106
+66.240.205.34
+66.240.236.109

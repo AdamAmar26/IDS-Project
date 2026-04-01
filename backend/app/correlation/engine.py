@@ -9,15 +9,24 @@ SEVERITY_THRESHOLDS = [
 ]
 
 
+def _to_utc(dt: Any) -> datetime:
+    """Normalize naive/aware datetimes to timezone-aware UTC."""
+    if isinstance(dt, datetime):
+        if dt.tzinfo is None:
+            return dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
+    return datetime.now(timezone.utc)
+
+
 def _same_host_recent_anomalies(
     alert: Dict, recent: List[Dict], window_sec: int = 900,
 ) -> int:
     count = 0
-    alert_ts = alert.get("created_at") or datetime.now(timezone.utc)
+    alert_ts = _to_utc(alert.get("created_at"))
     for a in recent:
         if not a.get("is_anomaly"):
             continue
-        a_ts = a.get("created_at") or datetime.now(timezone.utc)
+        a_ts = _to_utc(a.get("created_at"))
         if abs((alert_ts - a_ts).total_seconds()) <= window_sec:
             count += 1
     return count
@@ -56,7 +65,7 @@ class CorrelationEngine:
 
         consecutive = 0
         for a in sorted(
-            recent_alerts, key=lambda x: x.get("created_at", datetime.min),
+            recent_alerts, key=lambda x: _to_utc(x.get("created_at")),
         ):
             consecutive = consecutive + 1 if a.get("is_anomaly") else 0
         if consecutive >= 3:
