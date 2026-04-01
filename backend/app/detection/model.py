@@ -1,14 +1,13 @@
 import hashlib
 import hmac
-import os
 import logging
-from typing import Dict, List, Tuple, Optional
+import os
 
 import joblib
 import numpy as np
 from sklearn.ensemble import IsolationForest
 
-from app.config import FEATURE_NAMES, MODEL_PATH, MIN_TRAINING_SAMPLES, CONTAMINATION, JWT_SECRET
+from app.config import CONTAMINATION, FEATURE_NAMES, JWT_SECRET, MIN_TRAINING_SAMPLES, MODEL_PATH
 
 logger = logging.getLogger(__name__)
 
@@ -34,14 +33,14 @@ class AnomalyDetector:
     """Isolation Forest anomaly detector with SHAP-based explainability."""
 
     def __init__(self):
-        self.model: Optional[IsolationForest] = None
-        self.explainer: Optional["shap.TreeExplainer"] = None
+        self.model: IsolationForest | None = None
+        self.explainer: shap.TreeExplainer | None = None
         self.is_trained: bool = False
-        self.training_data: List[List[float]] = []
+        self.training_data: list[list[float]] = []
         self.feature_names = FEATURE_NAMES
         self._load_model()
 
-    def _features_to_vector(self, features: Dict[str, float]) -> List[float]:
+    def _features_to_vector(self, features: dict[str, float]) -> list[float]:
         return [float(features.get(name, 0)) for name in self.feature_names]
 
     # ------------------------------------------------------------------
@@ -95,7 +94,7 @@ class AnomalyDetector:
     # Training
     # ------------------------------------------------------------------
 
-    def add_training_sample(self, features: Dict[str, float]) -> bool:
+    def add_training_sample(self, features: dict[str, float]) -> bool:
         """Append a sample; auto-train once MIN_TRAINING_SAMPLES is reached."""
         self.training_data.append(self._features_to_vector(features))
         if len(self.training_data) >= MIN_TRAINING_SAMPLES and not self.is_trained:
@@ -124,7 +123,7 @@ class AnomalyDetector:
     # Scoring
     # ------------------------------------------------------------------
 
-    def _shap_top_features(self, vector: np.ndarray) -> Dict[str, float]:
+    def _shap_top_features(self, vector: np.ndarray) -> dict[str, float]:
         """Use SHAP TreeExplainer to attribute anomaly to individual features."""
         if self.explainer is None:
             return self._zscore_top_features(vector)
@@ -146,7 +145,7 @@ class AnomalyDetector:
             logger.warning("SHAP attribution failed, falling back to z-score: %s", exc)
             return self._zscore_top_features(vector)
 
-    def _zscore_top_features(self, vector: np.ndarray) -> Dict[str, float]:
+    def _zscore_top_features(self, vector: np.ndarray) -> dict[str, float]:
         mean_vec = np.mean(self.training_data, axis=0)
         std_vec = np.std(self.training_data, axis=0) + 1e-10
         fv = vector[0] if vector.ndim == 2 else vector
@@ -156,7 +155,7 @@ class AnomalyDetector:
         }
         return dict(sorted(deviations.items(), key=lambda x: x[1], reverse=True)[:5])
 
-    def score(self, features: Dict[str, float]) -> Tuple[float, bool, Dict[str, float]]:
+    def score(self, features: dict[str, float]) -> tuple[float, bool, dict[str, float]]:
         """Return (anomaly_score, is_anomaly, top_deviating_features).
 
         Feature attribution uses SHAP TreeExplainer when available, producing
@@ -174,7 +173,7 @@ class AnomalyDetector:
 
         return round(anomaly_score, 4), is_anomaly, top
 
-    def retrain(self, data: List[List[float]]) -> bool:
+    def retrain(self, data: list[list[float]]) -> bool:
         """Retrain on a fresh dataset (e.g. recent non-anomalous windows)."""
         if len(data) < 2:
             return False

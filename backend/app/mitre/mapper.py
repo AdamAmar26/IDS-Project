@@ -3,9 +3,8 @@
 Reference: https://attack.mitre.org/
 """
 
-from typing import Dict, List
 
-TECHNIQUE_DB: Dict[str, Dict] = {
+TECHNIQUE_DB: dict[str, dict] = {
     # --- Original techniques ---
     "T1078": {
         "name": "Valid Accounts",
@@ -110,7 +109,7 @@ TECHNIQUE_DB: Dict[str, Dict] = {
     },
 }
 
-TACTIC_DB: Dict[str, str] = {
+TACTIC_DB: dict[str, str] = {
     "TA0001": "Initial Access",
     "TA0002": "Execution",
     "TA0003": "Persistence",
@@ -131,7 +130,7 @@ KILL_CHAIN_ORDER = [
     "TA0011", "TA0040",
 ]
 
-RULE_TO_TECHNIQUES: Dict[str, List[str]] = {
+RULE_TO_TECHNIQUES: dict[str, list[str]] = {
     "high_anomaly_score": ["T1059", "T1078"],
     "repeated_anomaly_15min": ["T1021", "T1110"],
     "unusual_port_spread": ["T1046", "T1048", "T1071", "T1571"],
@@ -148,7 +147,7 @@ RULE_TO_TECHNIQUES: Dict[str, List[str]] = {
 class MitreMapper:
     """Resolve triggered correlation rules into ATT&CK techniques and tactics."""
 
-    def map_rules(self, triggered_rules: List[str]) -> Dict:
+    def map_rules(self, triggered_rules: list[str]) -> dict:
         techniques: dict[str, dict] = {}
         tactic_ids: set[str] = set()
 

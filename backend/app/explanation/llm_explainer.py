@@ -2,7 +2,7 @@
 
 import logging
 import os
-from typing import Dict, Any, Optional, List
+from typing import Any
 
 import httpx
 
@@ -18,13 +18,13 @@ def _build_analyst_prompt(
     host_id: str,
     risk_score: float,
     severity: str,
-    triggered_rules: List[str],
+    triggered_rules: list[str],
     alert_count: int,
-    features: Dict[str, Any],
-    baseline: Optional[Dict[str, Any]],
-    context: Optional[Dict[str, Any]],
-    mitre_info: Optional[Dict] = None,
-    threat_intel_hits: Optional[List[Dict]] = None,
+    features: dict[str, Any],
+    baseline: dict[str, Any] | None,
+    context: dict[str, Any] | None,
+    mitre_info: dict | None = None,
+    threat_intel_hits: list[dict] | None = None,
 ) -> str:
     feature_lines = "\n".join(
         f"  {k}: {v} (baseline: {(baseline or {}).get(k, 'N/A')})"
@@ -85,14 +85,14 @@ class OllamaExplainer:
         host_id: str,
         risk_score: float,
         severity: str,
-        triggered_rules: List[str],
+        triggered_rules: list[str],
         alert_count: int,
-        features: Dict[str, Any],
-        baseline: Optional[Dict[str, Any]] = None,
-        context: Optional[Dict[str, Any]] = None,
-        mitre_info: Optional[Dict] = None,
-        threat_intel_hits: Optional[List[Dict]] = None,
-    ) -> Dict[str, str]:
+        features: dict[str, Any],
+        baseline: dict[str, Any] | None = None,
+        context: dict[str, Any] | None = None,
+        mitre_info: dict | None = None,
+        threat_intel_hits: list[dict] | None = None,
+    ) -> dict[str, str]:
         prompt = _build_analyst_prompt(
             host_id, risk_score, severity, triggered_rules, alert_count,
             features, baseline, context, mitre_info, threat_intel_hits,
@@ -126,14 +126,14 @@ class OllamaExplainer:
         host_id: str,
         risk_score: float,
         severity: str,
-        triggered_rules: List[str],
+        triggered_rules: list[str],
         alert_count: int,
-        features: Dict[str, Any],
-        baseline: Optional[Dict[str, Any]] = None,
-        context: Optional[Dict[str, Any]] = None,
-        mitre_info: Optional[Dict] = None,
-        threat_intel_hits: Optional[List[Dict]] = None,
-    ) -> Dict[str, str]:
+        features: dict[str, Any],
+        baseline: dict[str, Any] | None = None,
+        context: dict[str, Any] | None = None,
+        mitre_info: dict | None = None,
+        threat_intel_hits: list[dict] | None = None,
+    ) -> dict[str, str]:
         """Synchronous version for use in the threaded orchestrator."""
         prompt = _build_analyst_prompt(
             host_id, risk_score, severity, triggered_rules, alert_count,
@@ -167,7 +167,7 @@ class OllamaExplainer:
     @staticmethod
     def _parse_llm_response(
         text: str, host_id: str, severity: str, risk_score: float,
-    ) -> Dict[str, str]:
+    ) -> dict[str, str]:
         summary = f"Host {host_id} — {severity.upper()} severity (risk {risk_score})"
         explanation = text.strip()
         actions = ""

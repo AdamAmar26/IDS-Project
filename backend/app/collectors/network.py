@@ -1,9 +1,9 @@
 """Network-level helpers consumed by the feature pipeline."""
 
-from typing import Dict, List, Any
+from typing import Any
 
 
-def summarize_connections(events: List[Dict[str, Any]]) -> Dict[str, Any]:
+def summarize_connections(events: list[dict[str, Any]]) -> dict[str, Any]:
     """Derive network features from raw connection and net_io events."""
     dest_ips: set[str] = set()
     dest_ports: set[int] = set()

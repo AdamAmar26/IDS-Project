@@ -1,13 +1,22 @@
+from datetime import UTC, datetime
+
 from sqlalchemy import (
-    Column, Integer, String, Float, Boolean, DateTime, Text,
-    ForeignKey, JSON, Table,
+    JSON,
+    Boolean,
+    Column,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Table,
+    Text,
 )
-from sqlalchemy.orm import relationship, DeclarativeBase
-from datetime import datetime, timezone
+from sqlalchemy.orm import DeclarativeBase, relationship
 
 
 def _utcnow():
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class Base(DeclarativeBase):

@@ -1,9 +1,9 @@
+import json
 import logging
 import socket
 import subprocess
-import json
-from datetime import datetime, timezone
-from typing import List, Dict, Any
+from datetime import UTC, datetime
+from typing import Any
 
 import psutil
 
@@ -29,7 +29,7 @@ class WindowsHostCollector:
         self._known_pids: set[int] = set()
         self._warm_up_pids()
 
-        self._last_login_check = datetime.now(timezone.utc)
+        self._last_login_check = datetime.now(UTC)
         self._known_users: set[str] = {u.name for u in psutil.users()}
         self.security_log_available = self._check_security_log()
 
@@ -71,7 +71,7 @@ class WindowsHostCollector:
     # Process telemetry
     # ------------------------------------------------------------------
 
-    def collect_processes(self) -> List[Dict[str, Any]]:
+    def collect_processes(self) -> list[dict[str, Any]]:
         events: list[dict[str, Any]] = []
         current_pids: set[int] = set()
         cpu_samples: list[float] = []
@@ -108,7 +108,7 @@ class WindowsHostCollector:
     # Network connection metadata + byte counters
     # ------------------------------------------------------------------
 
-    def collect_connections(self) -> List[Dict[str, Any]]:
+    def collect_connections(self) -> list[dict[str, Any]]:
         events: list[dict[str, Any]] = []
         try:
             for conn in psutil.net_connections(kind="inet"):
@@ -143,9 +143,9 @@ class WindowsHostCollector:
     # Login / admin / UAC telemetry
     # ------------------------------------------------------------------
 
-    def collect_logins(self) -> List[Dict[str, Any]]:
+    def collect_logins(self) -> list[dict[str, Any]]:
         events: list[dict[str, Any]] = []
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         since = self._last_login_check
         self._last_login_check = now
 
@@ -156,7 +156,7 @@ class WindowsHostCollector:
         events.extend(self._collect_logins_psutil())
         return events
 
-    def _collect_logins_evtlog(self, since: datetime) -> List[Dict[str, Any]]:
+    def _collect_logins_evtlog(self, since: datetime) -> list[dict[str, Any]]:
         events: list[dict[str, Any]] = []
         event_ids = {
             4624: "login_success",
@@ -185,7 +185,7 @@ class WindowsHostCollector:
                 logger.debug("Login event query for %s failed: %s", eid, exc)
         return events
 
-    def _collect_uac_events(self, since: datetime) -> List[Dict[str, Any]]:
+    def _collect_uac_events(self, since: datetime) -> list[dict[str, Any]]:
         """Detect elevated process creation (event 4688 with full-admin token)."""
         events: list[dict[str, Any]] = []
         try:
@@ -210,7 +210,7 @@ class WindowsHostCollector:
             logger.debug("UAC event query failed: %s", exc)
         return events
 
-    def _collect_logins_psutil(self) -> List[Dict[str, Any]]:
+    def _collect_logins_psutil(self) -> list[dict[str, Any]]:
         """Lightweight fallback: detect new user sessions via psutil."""
         events: list[dict[str, Any]] = []
         current_users = {u.name for u in psutil.users()}
@@ -223,8 +223,8 @@ class WindowsHostCollector:
     # Unified collection
     # ------------------------------------------------------------------
 
-    def collect_all(self) -> List[Dict[str, Any]]:
-        ts = datetime.now(timezone.utc).isoformat()
+    def collect_all(self) -> list[dict[str, Any]]:
+        ts = datetime.now(UTC).isoformat()
         all_events: list[dict[str, Any]] = []
         for event in self.collect_processes() + self.collect_connections() + self.collect_logins():
             event["timestamp"] = ts

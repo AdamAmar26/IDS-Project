@@ -1,21 +1,20 @@
 from datetime import datetime
-from typing import Optional, List
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from app.db.session import get_db
-from app.db.models import FeatureWindow
 from app.api.schemas import FeatureWindowOut
+from app.db.models import FeatureWindow
+from app.db.session import get_db
 
 router = APIRouter()
 
 
-@router.get("", response_model=List[FeatureWindowOut])
+@router.get("", response_model=list[FeatureWindowOut])
 def list_features(
-    host_id: Optional[str] = None,
-    since: Optional[datetime] = None,
-    until: Optional[datetime] = None,
+    host_id: str | None = None,
+    since: datetime | None = None,
+    until: datetime | None = None,
     limit: int = Query(100, le=1000),
     offset: int = 0,
     db: Session = Depends(get_db),

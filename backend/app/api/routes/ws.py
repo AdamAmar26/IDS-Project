@@ -3,7 +3,7 @@
 import asyncio
 import json
 import logging
-from typing import Dict, Any, List
+from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
@@ -16,7 +16,7 @@ class ConnectionManager:
     """Manages active WebSocket connections and broadcasts events."""
 
     def __init__(self):
-        self._connections: List[WebSocket] = []
+        self._connections: list[WebSocket] = []
         self._queue: asyncio.Queue = asyncio.Queue()
 
     async def connect(self, websocket: WebSocket):
@@ -29,7 +29,7 @@ class ConnectionManager:
             self._connections.remove(websocket)
         logger.info("WebSocket client disconnected (%d remaining)", len(self._connections))
 
-    def enqueue(self, event_type: str, payload: Dict[str, Any]):
+    def enqueue(self, event_type: str, payload: dict[str, Any]):
         """Thread-safe enqueue called from the orchestrator thread."""
         message = json.dumps({"type": event_type, "data": payload})
         try:

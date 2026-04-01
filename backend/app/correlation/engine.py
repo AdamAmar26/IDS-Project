@@ -1,5 +1,5 @@
-from datetime import datetime, timezone
-from typing import List, Dict, Any
+from datetime import UTC, datetime
+from typing import Any
 
 SEVERITY_THRESHOLDS = [
     ("critical", 8),
@@ -17,13 +17,13 @@ def _to_utc(dt: Any) -> datetime:
     """Normalize naive/aware datetimes to timezone-aware UTC."""
     if isinstance(dt, datetime):
         if dt.tzinfo is None:
-            return dt.replace(tzinfo=timezone.utc)
-        return dt.astimezone(timezone.utc)
-    return datetime.now(timezone.utc)
+            return dt.replace(tzinfo=UTC)
+        return dt.astimezone(UTC)
+    return datetime.now(UTC)
 
 
 def _same_host_recent_anomalies(
-    alert: Dict, recent: List[Dict], window_sec: int = 900,
+    alert: dict, recent: list[dict], window_sec: int = 900,
 ) -> int:
     count = 0
     alert_ts = _to_utc(alert.get("created_at"))
@@ -41,9 +41,9 @@ class CorrelationEngine:
 
     def evaluate(
         self,
-        alert_data: Dict[str, Any],
-        recent_alerts: List[Dict[str, Any]],
-    ) -> Dict[str, Any]:
+        alert_data: dict[str, Any],
+        recent_alerts: list[dict[str, Any]],
+    ) -> dict[str, Any]:
         risk = 0
         triggered: list[str] = []
         features = alert_data.get("features", {})

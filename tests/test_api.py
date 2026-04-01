@@ -1,5 +1,8 @@
+import os
+
 import pytest
 from fastapi.testclient import TestClient
+
 from app.main import app
 
 
@@ -65,7 +68,11 @@ def test_prometheus_metrics(client):
 
 
 def test_auth_token(client):
-    r = client.post("/auth/token", json={"username": "admin", "password": "admin"})
+    password = os.environ.get("IDS_ADMIN_PASSWORD", "admin")
+    r = client.post(
+        "/auth/token",
+        json={"username": "admin", "password": password},
+    )
     assert r.status_code == 200
     data = r.json()
     assert "access_token" in data

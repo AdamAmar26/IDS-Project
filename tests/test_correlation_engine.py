@@ -1,4 +1,5 @@
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime, timedelta
+
 from app.correlation.engine import CorrelationEngine
 
 
@@ -9,7 +10,7 @@ def test_low_risk_no_incident():
             "anomaly_score": 0.1,
             "is_anomaly": True,
             "features": {},
-            "created_at": datetime.now(timezone.utc),
+            "created_at": datetime.now(UTC),
         },
         [],
     )
@@ -25,7 +26,7 @@ def test_high_anomaly_score():
             "anomaly_score": 0.5,
             "is_anomaly": True,
             "features": {},
-            "created_at": datetime.now(timezone.utc),
+            "created_at": datetime.now(UTC),
         },
         [],
     )
@@ -40,7 +41,7 @@ def test_login_plus_process():
             "anomaly_score": 0.5,
             "is_anomaly": True,
             "features": {"failed_login_count": 3, "new_process_count": 5},
-            "created_at": datetime.now(timezone.utc),
+            "created_at": datetime.now(UTC),
         },
         [],
     )
@@ -50,7 +51,7 @@ def test_login_plus_process():
 
 def test_repeated_anomalies_escalate():
     engine = CorrelationEngine()
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     recent = [
         {"is_anomaly": True, "created_at": now - timedelta(minutes=5)},
         {"is_anomaly": True, "created_at": now - timedelta(minutes=10)},
@@ -70,7 +71,7 @@ def test_repeated_anomalies_escalate():
 
 def test_severity_thresholds():
     engine = CorrelationEngine()
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     recent = [
         {"is_anomaly": True, "created_at": now - timedelta(minutes=i)}
         for i in range(5)

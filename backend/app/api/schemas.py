@@ -1,8 +1,8 @@
-from enum import Enum
+from datetime import datetime
+from enum import StrEnum
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict
-from datetime import datetime
-from typing import Optional, Dict, List, Any
 
 
 class RawEventOut(BaseModel):
@@ -11,7 +11,7 @@ class RawEventOut(BaseModel):
     host_id: str
     event_type: str
     timestamp: datetime
-    data: Dict[str, Any]
+    data: dict[str, Any]
 
 
 class FeatureWindowOut(BaseModel):
@@ -37,10 +37,10 @@ class FeatureWindowOut(BaseModel):
     unique_parent_processes: int = 0
     memory_usage_spike: float = 0.0
     sensitive_file_access_count: int = 0
-    context: Optional[Dict[str, Any]] = None
+    context: dict[str, Any] | None = None
 
 
-class AlertVerdict(str, Enum):
+class AlertVerdict(StrEnum):
     true_positive = "true_positive"
     false_positive = "false_positive"
 
@@ -53,11 +53,11 @@ class AlertOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
     host_id: str
-    feature_window_id: Optional[int] = None
+    feature_window_id: int | None = None
     anomaly_score: float
     is_anomaly: bool
-    top_features: Optional[Dict[str, float]] = None
-    verdict: Optional[str] = None
+    top_features: dict[str, float] | None = None
+    verdict: str | None = None
     created_at: datetime
 
 
@@ -85,19 +85,19 @@ class IncidentOut(BaseModel):
     summary: str
     explanation: str
     suggested_actions: str
-    mitre_tactics: List[Dict[str, Any]] = []
-    mitre_techniques: List[Dict[str, Any]] = []
-    threat_intel_hits: List[str] = []
-    kill_chain_phase: Optional[str] = None
+    mitre_tactics: list[dict[str, Any]] = []
+    mitre_techniques: list[dict[str, Any]] = []
+    threat_intel_hits: list[str] = []
+    kill_chain_phase: str | None = None
     created_at: datetime
     updated_at: datetime
-    alert_ids: List[int] = []
+    alert_ids: list[int] = []
 
 
 class HostDetailOut(BaseModel):
     host_id: str
-    baseline: Optional[Dict[str, Any]] = None
-    current_features: Optional[Dict[str, Any]] = None
+    baseline: dict[str, Any] | None = None
+    current_features: dict[str, Any] | None = None
     alert_count: int = 0
     incident_count: int = 0
 

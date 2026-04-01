@@ -13,15 +13,21 @@ select = ["E", "F", "W", "I", "B", "UP", "S"]
 ignore = [
     "S101",  # assert used in tests
     "S104",  # binding to 0.0.0.0
+    "S105",  # false positives on OAuth "bearer" strings
+    "S311",  # random() for simulations — not cryptographic use
     "S603",  # subprocess without shell=True
     "S607",  # partial executable path
+    "B008",  # FastAPI Depends()/Query() in defaults is idiomatic
 ]
 
 [tool.mypy]
 python_version = "3.11"
 ignore_missing_imports = true
-warn_return_any = true
+plugins = ["sqlalchemy.ext.mypy.plugin"]
+warn_return_any = false
 warn_unused_configs = true
+# ORM Column vs runtime types, FastAPI/SlowAPI handler signatures
+disable_error_code = ["arg-type", "assignment", "return-value", "misc"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

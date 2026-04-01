@@ -1,10 +1,9 @@
 """Threat intelligence enrichment via local blocklist and optional AbuseIPDB."""
 
+import ipaddress
 import logging
 import os
-import ipaddress
 from pathlib import Path
-from typing import Dict, List, Set
 
 import httpx
 
@@ -34,7 +33,7 @@ class ThreatIntelEnricher:
     """Check IPs against a local blocklist and optionally AbuseIPDB."""
 
     def __init__(self):
-        self._blocklist: Set[str] = set()
+        self._blocklist: set[str] = set()
         self._load_blocklist()
 
     def _load_blocklist(self):
@@ -48,8 +47,8 @@ class ThreatIntelEnricher:
             except Exception as exc:
                 logger.warning("Could not load blocklist: %s", exc)
 
-    def check_local(self, ips: List[str]) -> List[Dict]:
-        hits: list[Dict] = []
+    def check_local(self, ips: list[str]) -> list[dict]:
+        hits: list[dict] = []
         for ip in ips:
             if _is_private(ip):
                 continue
@@ -62,10 +61,10 @@ class ThreatIntelEnricher:
                 })
         return hits
 
-    async def check_abuseipdb(self, ips: List[str]) -> List[Dict]:
+    async def check_abuseipdb(self, ips: list[str]) -> list[dict]:
         if not ABUSEIPDB_KEY:
             return []
-        hits: list[Dict] = []
+        hits: list[dict] = []
         async with httpx.AsyncClient(timeout=5.0) as client:
             for ip in ips:
                 if _is_private(ip):
@@ -96,7 +95,7 @@ class ThreatIntelEnricher:
                     logger.warning("AbuseIPDB check failed for %s: %s", ip, exc)
         return hits
 
-    async def enrich(self, ips: List[str]) -> List[Dict]:
+    async def enrich(self, ips: list[str]) -> list[dict]:
         """Run all enrichment sources and return merged hits."""
         hits = self.check_local(ips)
         abuseipdb_hits = await self.check_abuseipdb(ips)

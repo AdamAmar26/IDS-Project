@@ -1,4 +1,4 @@
-from typing import Dict, Any, Optional, List
+from typing import Any
 
 
 class AlertExplainer:
@@ -8,11 +8,11 @@ class AlertExplainer:
         self,
         host_id: str,
         anomaly_score: float,
-        top_features: Dict[str, float],
-        features: Dict[str, Any],
-        baseline: Optional[Dict[str, Any]] = None,
-        context: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, str]:
+        top_features: dict[str, float],
+        features: dict[str, Any],
+        baseline: dict[str, Any] | None = None,
+        context: dict[str, Any] | None = None,
+    ) -> dict[str, str]:
         parts: list[str] = []
         parts.append(
             f"Host {host_id} triggered an anomaly alert "
@@ -42,12 +42,12 @@ class AlertExplainer:
         host_id: str,
         risk_score: float,
         severity: str,
-        triggered_rules: List[str],
+        triggered_rules: list[str],
         alert_count: int,
-        features: Dict[str, Any],
-        baseline: Optional[Dict[str, Any]] = None,
-        context: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, str]:
+        features: dict[str, Any],
+        baseline: dict[str, Any] | None = None,
+        context: dict[str, Any] | None = None,
+    ) -> dict[str, str]:
         summary = (
             f"Host {host_id} reached {severity.upper()} severity "
             f"(risk score {risk_score}) based on {alert_count} correlated alert(s)."
@@ -90,7 +90,7 @@ class AlertExplainer:
         }
 
     @staticmethod
-    def _append_context_lines(parts: list[str], ctx: Dict[str, Any]):
+    def _append_context_lines(parts: list[str], ctx: dict[str, Any]):
         top_procs = ctx.get("top_new_processes", [])
         if top_procs:
             parts.append(
@@ -106,8 +106,8 @@ class AlertExplainer:
             parts.append("Top connected processes: " + ", ".join(conn_info))
 
     def _suggest_actions(
-        self, severity: str, rules: List[str], features: Dict[str, Any],
-    ) -> List[str]:
+        self, severity: str, rules: list[str], features: dict[str, Any],
+    ) -> list[str]:
         actions: list[str] = []
         if "high_anomaly_score" in rules or severity in ("high", "critical"):
             actions.append("- Investigate the host immediately for signs of compromise.")

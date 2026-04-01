@@ -1,19 +1,18 @@
 import csv
 import io
 from datetime import datetime
-from typing import Optional, List
 
-from fastapi import APIRouter, Depends, Query, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
-from app.db.session import get_db
-from app.db.models import Incident, IncidentNote
 from app.api.schemas import (
-    IncidentOut,
     IncidentNoteIn,
     IncidentNoteOut,
+    IncidentOut,
 )
+from app.db.models import Incident, IncidentNote
+from app.db.session import get_db
 
 router = APIRouter()
 
@@ -38,12 +37,12 @@ def _to_out(inc: Incident) -> IncidentOut:
     )
 
 
-@router.get("", response_model=List[IncidentOut])
+@router.get("", response_model=list[IncidentOut])
 def list_incidents(
-    host_id: Optional[str] = None,
-    status: Optional[str] = None,
-    severity: Optional[str] = None,
-    since: Optional[datetime] = None,
+    host_id: str | None = None,
+    status: str | None = None,
+    severity: str | None = None,
+    since: datetime | None = None,
     limit: int = Query(50, le=500),
     offset: int = 0,
     db: Session = Depends(get_db),
@@ -82,7 +81,7 @@ def update_status(incident_id: int, status: str, db: Session = Depends(get_db)):
 # ---- Analyst notes ----
 
 
-@router.get("/{incident_id}/notes", response_model=List[IncidentNoteOut])
+@router.get("/{incident_id}/notes", response_model=list[IncidentNoteOut])
 def list_notes(incident_id: int, db: Session = Depends(get_db)):
     inc = db.get(Incident, incident_id)
     if not inc:

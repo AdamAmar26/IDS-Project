@@ -9,7 +9,6 @@ import os
 import tempfile
 import threading
 from pathlib import Path
-from typing import Set
 
 import httpx
 
@@ -26,7 +25,7 @@ UPDATE_INTERVAL_SECONDS = int(os.environ.get("IDS_FEED_UPDATE_INTERVAL", "86400"
 _LOCAL_HEADER = "# Local additions — lines below this marker are preserved across updates\n"
 
 
-def _parse_blocklist(text: str) -> Set[str]:
+def _parse_blocklist(text: str) -> set[str]:
     ips: set[str] = set()
     for line in text.splitlines():
         stripped = line.strip()
@@ -37,7 +36,7 @@ def _parse_blocklist(text: str) -> Set[str]:
     return ips
 
 
-def _load_local_additions() -> Set[str]:
+def _load_local_additions() -> set[str]:
     """Extract IPs that were manually added to the blocklist (below the marker)."""
     if not BLOCKLIST_PATH.exists():
         return set()
@@ -48,7 +47,7 @@ def _load_local_additions() -> Set[str]:
     return set()
 
 
-def _download_feed(url: str, timeout: float = 30.0) -> Set[str]:
+def _download_feed(url: str, timeout: float = 30.0) -> set[str]:
     try:
         with httpx.Client(timeout=timeout, follow_redirects=True) as client:
             resp = client.get(url)
@@ -93,7 +92,8 @@ def update_blocklist() -> int:
                     f.write(ip + "\n")
 
         os.replace(tmp_path, BLOCKLIST_PATH)
-        logger.info("Blocklist updated: %d total IPs (%d local)", len(all_ips), len(local_additions))
+        n_local = len(local_additions)
+        logger.info("Blocklist updated: %d total IPs (%d local)", len(all_ips), n_local)
         return len(all_ips)
     except Exception:
         logger.exception("Atomic blocklist swap failed")

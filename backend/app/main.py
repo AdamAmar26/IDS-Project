@@ -1,30 +1,35 @@
 import logging
 import uuid
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from jose import JWTError, jwt
 from pydantic import BaseModel
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
-from jose import JWTError, jwt
-
+from app.api.routes import alerts, events, features, hosts, incidents, metrics
+from app.api.routes.prometheus import router as prom_router
+from app.api.routes.ws import manager as ws_manager
+from app.api.routes.ws import router as ws_router
 from app.config import (
-    API_KEY, MIN_TRAINING_SAMPLES,
-    JWT_SECRET, JWT_ALGORITHM, JWT_EXPIRE_MINUTES,
-    ADMIN_USERNAME, ADMIN_PASSWORD,
-    CORS_ORIGINS, AUTH_RATE_LIMIT,
+    ADMIN_PASSWORD,
+    ADMIN_USERNAME,
+    API_KEY,
+    AUTH_RATE_LIMIT,
+    CORS_ORIGINS,
+    JWT_ALGORITHM,
+    JWT_EXPIRE_MINUTES,
+    JWT_SECRET,
+    MIN_TRAINING_SAMPLES,
     validate_security_defaults,
 )
 from app.db.session import init_db
 from app.services.orchestrator import get_orchestrator
-from app.api.routes import events, features, alerts, incidents, hosts, metrics
-from app.api.routes.ws import router as ws_router, manager as ws_manager
-from app.api.routes.prometheus import router as prom_router
 
 try:
     from pythonjsonlogger import jsonlogger
@@ -136,7 +141,7 @@ class TokenResponse(BaseModel):
 def login(request: Request, body: TokenRequest):
     if body.username != ADMIN_USERNAME or body.password != ADMIN_PASSWORD:
         raise HTTPException(status_code=401, detail="Invalid credentials")
-    expire = datetime.now(timezone.utc) + timedelta(minutes=JWT_EXPIRE_MINUTES)
+    expire = datetime.now(UTC) + timedelta(minutes=JWT_EXPIRE_MINUTES)
     payload = {"sub": body.username, "exp": expire}
     token = jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
     return TokenResponse(access_token=token, expires_in=JWT_EXPIRE_MINUTES * 60)
@@ -188,11 +193,12 @@ def simulate_attack(scenario: str = "brute_force_portscan"):
     lateral_movement, ransomware_staging, c2_beaconing, privilege_escalation
     """
     import random
-    from app.db.session import SessionLocal
-    from app.db.models import RawEvent
-    from app.config import HOST_ID
 
-    now = datetime.now(timezone.utc)
+    from app.config import HOST_ID
+    from app.db.models import RawEvent
+    from app.db.session import SessionLocal
+
+    now = datetime.now(UTC)
     events: list[dict] = []
 
     if scenario == "brute_force_portscan":
@@ -220,7 +226,7 @@ def simulate_attack(scenario: str = "brute_force_portscan"):
                 "remote_port": port,
                 "process_name": "svchost.exe",
             })
-        for i in range(6):
+        for _ in range(6):
             events.append({
                 "host_id": HOST_ID,
                 "type": "new_process",
@@ -231,7 +237,7 @@ def simulate_attack(scenario: str = "brute_force_portscan"):
             })
 
     elif scenario == "data_exfiltration":
-        for i in range(3):
+        for _ in range(3):
             events.append({
                 "host_id": HOST_ID,
                 "type": "connection",
@@ -247,7 +253,7 @@ def simulate_attack(scenario: str = "brute_force_portscan"):
             "bytes_sent": random.randint(50_000_000, 200_000_000),
             "bytes_received": random.randint(1000, 5000),
         })
-        for i in range(4):
+        for _ in range(4):
             events.append({
                 "host_id": HOST_ID,
                 "type": "new_process",
@@ -344,11 +350,14 @@ def simulate_attack(scenario: str = "brute_force_portscan"):
                 "process_name": "svchost.exe",
             })
         for i in range(30):
+            xid = random.randint(1000, 9999)
+            beacon = random.randint(1, 5)
+            domain = f"x{xid}.beacon-{beacon}.example.com"
             events.append({
                 "host_id": HOST_ID,
                 "type": "dns_query",
                 "timestamp": (now - timedelta(seconds=i * 10)).isoformat(),
-                "domain": f"x{random.randint(1000, 9999)}.beacon-{random.randint(1, 5)}.example.com",
+                "domain": domain,
             })
         events.append({
             "host_id": HOST_ID,

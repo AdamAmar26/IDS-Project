@@ -1,8 +1,8 @@
 from datetime import datetime
-from typing import Dict, List, Any
+from typing import Any
 
-from app.config import FEATURE_NAMES
 from app.collectors.network import summarize_connections
+from app.config import FEATURE_NAMES
 
 PRIVILEGED_BINARIES = frozenset({
     "net.exe", "net1.exe", "sc.exe", "reg.exe", "whoami.exe",
@@ -31,10 +31,10 @@ SUSPICIOUS_PARENT_CHILD = frozenset({
 
 
 def compute_features(
-    events: List[Dict[str, Any]],
+    events: list[dict[str, Any]],
     window_start: datetime,
     window_end: datetime,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Turn a batch of raw events into a single feature vector for one window."""
     features: dict[str, Any] = {name: 0 for name in FEATURE_NAMES}
     cpu_values: list[float] = []
@@ -100,14 +100,17 @@ def compute_features(
     if memory_values:
         avg_mem = sum(memory_values) / len(memory_values)
         max_mem = max(memory_values)
-        features["memory_usage_spike"] = round(max_mem - avg_mem, 4) if len(memory_values) > 1 else 0
+        if len(memory_values) > 1:
+            features["memory_usage_spike"] = round(max_mem - avg_mem, 4)
+        else:
+            features["memory_usage_spike"] = 0
     else:
         features["memory_usage_spike"] = 0
 
     return features
 
 
-def compute_context(events: List[Dict[str, Any]]) -> Dict[str, Any]:
+def compute_context(events: list[dict[str, Any]]) -> dict[str, Any]:
     """Extract non-ML context from raw events for enriching explanations."""
     new_process_names: list[str] = []
     connected_procs: dict[str, int] = {}

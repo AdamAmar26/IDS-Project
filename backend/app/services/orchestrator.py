@@ -1,26 +1,35 @@
 import asyncio
 import logging
 import threading
-from datetime import datetime, timezone, timedelta
-from typing import List, Dict, Any, Callable, Optional
+from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import numpy as np
 
+from app.collectors.host_windows import WindowsHostCollector
 from app.config import (
-    HOST_ID, WINDOW_SECONDS, FEATURE_NAMES,
-    MIN_TRAINING_SAMPLES, RETRAIN_INTERVAL_HOURS,
-    RAW_EVENT_RETENTION_DAYS, FEATURE_WINDOW_RETENTION_DAYS,
+    FEATURE_NAMES,
+    FEATURE_WINDOW_RETENTION_DAYS,
+    HOST_ID,
+    MIN_TRAINING_SAMPLES,
+    RAW_EVENT_RETENTION_DAYS,
+    RETRAIN_INTERVAL_HOURS,
+    WINDOW_SECONDS,
+)
+from app.correlation.engine import CorrelationEngine
+from app.db.models import (
+    Alert,
+    FeatureWindow,
+    HostBaseline,
+    Incident,
+    RawEvent,
 )
 from app.db.session import SessionLocal
-from app.db.models import (
-    RawEvent, FeatureWindow, Alert, Incident, HostBaseline,
-)
-from app.collectors.host_windows import WindowsHostCollector
-from app.features.pipeline import compute_features, compute_context
 from app.detection.model import AnomalyDetector
-from app.correlation.engine import CorrelationEngine
 from app.explanation.llm_explainer import OllamaExplainer
 from app.explanation.templates import AlertExplainer
+from app.features.pipeline import compute_context, compute_features
 from app.mitre.mapper import MitreMapper
 from app.threat_intel.enricher import ThreatIntelEnricher
 from app.threat_intel.feed_updater import FeedUpdateScheduler
@@ -42,13 +51,13 @@ class Orchestrator:
         self.feed_updater = FeedUpdateScheduler()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
-        self._last_retrain_time = datetime.now(timezone.utc)
-        self._broadcast_callbacks: List[Callable] = []
+        self._last_retrain_time = datetime.now(UTC)
+        self._broadcast_callbacks: list[Callable] = []
 
     def register_broadcast(self, callback: Callable):
         self._broadcast_callbacks.append(callback)
 
-    def _broadcast(self, event_type: str, payload: Dict[str, Any]):
+    def _broadcast(self, event_type: str, payload: dict[str, Any]):
         for cb in self._broadcast_callbacks:
             try:
                 cb(event_type, payload)
@@ -89,7 +98,7 @@ class Orchestrator:
             self._stop.wait(WINDOW_SECONDS)
 
     def _tick(self):
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         window_start = now - timedelta(seconds=WINDOW_SECONDS)
         window_end = now
 
@@ -188,7 +197,7 @@ class Orchestrator:
     # DB helpers
     # ------------------------------------------------------------------
 
-    def _persist_raw_events(self, events: List[Dict[str, Any]]):
+    def _persist_raw_events(self, events: list[dict[str, Any]]):
         db = SessionLocal()
         try:
             for ev in events:
@@ -203,7 +212,7 @@ class Orchestrator:
             db.close()
 
     def _persist_feature_window(
-        self, features: Dict, context: Dict,
+        self, features: dict, context: dict,
         window_start: datetime, window_end: datetime,
     ) -> int:
         db = SessionLocal()
@@ -224,7 +233,7 @@ class Orchestrator:
 
     def _persist_alert(
         self, fw_id: int, score: float, is_anomaly: bool,
-        top_features: Dict,
+        top_features: dict,
     ) -> int:
         db = SessionLocal()
         try:
@@ -242,10 +251,10 @@ class Orchestrator:
         finally:
             db.close()
 
-    def _recent_alerts(self, minutes: int = 15) -> List[Dict]:
+    def _recent_alerts(self, minutes: int = 15) -> list[dict]:
         db = SessionLocal()
         try:
-            cutoff = datetime.now(timezone.utc) - timedelta(minutes=minutes)
+            cutoff = datetime.now(UTC) - timedelta(minutes=minutes)
             rows = (
                 db.query(Alert)
                 .filter(Alert.host_id == HOST_ID, Alert.created_at >= cutoff)
@@ -264,7 +273,7 @@ class Orchestrator:
         finally:
             db.close()
 
-    def _get_baseline(self) -> Dict[str, Any]:
+    def _get_baseline(self) -> dict[str, Any]:
         db = SessionLocal()
         try:
             bl = db.query(HostBaseline).filter_by(host_id=HOST_ID).first()
@@ -292,7 +301,7 @@ class Orchestrator:
                 bl.feature_means = means
                 bl.feature_stds = stds
                 bl.sample_count = len(data)
-                bl.updated_at = datetime.now(timezone.utc)
+                bl.updated_at = datetime.now(UTC)
             else:
                 db.add(HostBaseline(
                     host_id=HOST_ID,
@@ -308,7 +317,7 @@ class Orchestrator:
         """Retrain model on the last 24 hours of feature windows."""
         db = SessionLocal()
         try:
-            cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+            cutoff = datetime.now(UTC) - timedelta(hours=24)
             recent_windows = (
                 db.query(FeatureWindow)
                 .filter(
@@ -340,7 +349,7 @@ class Orchestrator:
             ]
             if self.detector.retrain(recent_data):
                 self._update_baseline()
-                self._last_retrain_time = datetime.now(timezone.utc)
+                self._last_retrain_time = datetime.now(UTC)
                 logger.info("Periodic model retrain completed")
         finally:
             db.close()
@@ -349,7 +358,7 @@ class Orchestrator:
         """Delete raw events and feature windows beyond retention thresholds."""
         db = SessionLocal()
         try:
-            raw_cutoff = datetime.now(timezone.utc) - timedelta(
+            raw_cutoff = datetime.now(UTC) - timedelta(
                 days=RAW_EVENT_RETENTION_DAYS
             )
             deleted_raw = (
@@ -358,7 +367,7 @@ class Orchestrator:
                 .delete(synchronize_session=False)
             )
 
-            fw_cutoff = datetime.now(timezone.utc) - timedelta(
+            fw_cutoff = datetime.now(UTC) - timedelta(
                 days=FEATURE_WINDOW_RETENTION_DAYS
             )
             deleted_fw = (
@@ -382,10 +391,10 @@ class Orchestrator:
     def _create_or_update_incident(
         self,
         alert_id: int,
-        correlation: Dict,
-        explanation: Dict,
-        mitre_info: Optional[Dict] = None,
-        threat_hits: Optional[List[Dict]] = None,
+        correlation: dict,
+        explanation: dict,
+        mitre_info: dict | None = None,
+        threat_hits: list[dict] | None = None,
     ):
         db = SessionLocal()
         try:
@@ -415,7 +424,7 @@ class Orchestrator:
                 open_incident.mitre_techniques = mitre_techniques
                 open_incident.threat_intel_hits = ti_hits
                 open_incident.kill_chain_phase = kill_chain
-                open_incident.updated_at = datetime.now(timezone.utc)
+                open_incident.updated_at = datetime.now(UTC)
                 if alert and alert not in open_incident.alerts:
                     open_incident.alerts.append(alert)
                 incident_id = open_incident.id
@@ -446,7 +455,7 @@ class Orchestrator:
                 "severity": correlation["severity"],
                 "risk_score": correlation["risk_score"],
                 "mitre_techniques": [t.get("id") for t in mitre_techniques],
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             })
         finally:
             db.close()

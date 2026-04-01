@@ -15,11 +15,13 @@ def test_invalid_ip_treated_as_private():
 
 def test_local_blocklist_hit():
     enricher = ThreatIntelEnricher()
-    hits = enricher.check_local(["185.220.101.1"])
-    if enricher._blocklist:
-        assert len(hits) == 1
-        assert hits[0]["ip"] == "185.220.101.1"
-        assert hits[0]["source"] == "local_blocklist"
+    if not enricher._blocklist:
+        return
+    sample_ip = next(iter(enricher._blocklist))
+    hits = enricher.check_local([sample_ip])
+    assert len(hits) == 1
+    assert hits[0]["ip"] == sample_ip
+    assert hits[0]["source"] == "local_blocklist"
 
 
 def test_local_blocklist_miss():

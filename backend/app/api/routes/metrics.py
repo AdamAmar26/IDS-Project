@@ -1,10 +1,10 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.config import MIN_TRAINING_SAMPLES
-from app.db.session import get_db
-from app.db.models import RawEvent, FeatureWindow, Alert, Incident
 from app.api.schemas import MetricsOut
+from app.config import MIN_TRAINING_SAMPLES
+from app.db.models import Alert, FeatureWindow, Incident, RawEvent
+from app.db.session import get_db
 from app.services.orchestrator import get_orchestrator
 
 router = APIRouter()

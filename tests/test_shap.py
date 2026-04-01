@@ -1,4 +1,5 @@
 import numpy as np
+
 from app.detection.model import AnomalyDetector
 
 
