@@ -135,3 +135,34 @@ class HostBaseline(Base):
     feature_stds = Column(JSON)
     sample_count = Column(Integer, default=0)
     updated_at = Column(DateTime, default=_utcnow)
+
+
+class NotificationDelivery(Base):
+    __tablename__ = "notification_deliveries"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    incident_id = Column(Integer, ForeignKey("incidents.id"), nullable=False, index=True)
+    channel = Column(String, nullable=False, index=True)
+    status = Column(String, nullable=False)
+    error = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=_utcnow)
+
+
+class AuditEvent(Base):
+    __tablename__ = "audit_events"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    actor = Column(String, nullable=False, index=True)
+    action = Column(String, nullable=False, index=True)
+    resource = Column(String, nullable=False, index=True)
+    event_metadata = Column("metadata", JSON, default=dict)
+    created_at = Column(DateTime, default=_utcnow, index=True)
+
+
+class SavedHunt(Base):
+    __tablename__ = "saved_hunts"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String, nullable=False)
+    filters = Column(JSON, nullable=False)
+    created_at = Column(DateTime, default=_utcnow)

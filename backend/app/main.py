@@ -12,7 +12,21 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
-from app.api.routes import alerts, events, features, hosts, incidents, metrics
+from app.api.routes import (
+    alerts,
+    audit,
+    events,
+    features,
+    fleet,
+    hosts,
+    hunts,
+    incidents,
+    metrics,
+    reports,
+    settings,
+    soar,
+    summary,
+)
 from app.api.routes.prometheus import router as prom_router
 from app.api.routes.ws import manager as ws_manager
 from app.api.routes.ws import router as ws_router
@@ -30,6 +44,7 @@ from app.config import (
 )
 from app.db.session import init_db
 from app.services.orchestrator import get_orchestrator
+from app.services.audit import log_audit_event
 
 try:
     from pythonjsonlogger import jsonlogger
@@ -78,8 +93,9 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
-    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "X-API-Key", "Content-Type"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
@@ -96,11 +112,23 @@ async def add_request_id(request: Request, call_next):
 
 # ---- Authentication middleware (supports both legacy API key and JWT) ----
 
-EXEMPT_PREFIXES = ("/health", "/docs", "/openapi.json", "/redoc", "/auth", "/ws")
+EXEMPT_PREFIXES = ("/health", "/docs", "/openapi.json", "/redoc", "/auth", "/metrics")
+
+
+def _cors_headers(request: Request) -> dict[str, str]:
+    origin = request.headers.get("origin", "")
+    if origin in CORS_ORIGINS:
+        return {
+            "Access-Control-Allow-Origin": origin,
+            "Access-Control-Allow-Credentials": "true",
+        }
+    return {}
 
 
 @app.middleware("http")
 async def check_auth(request: Request, call_next):
+    if request.method == "OPTIONS":
+        return await call_next(request)
     if any(request.url.path.startswith(p) for p in EXEMPT_PREFIXES):
         return await call_next(request)
 
@@ -111,15 +139,15 @@ async def check_auth(request: Request, call_next):
             jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
             return await call_next(request)
         except JWTError:
-            return JSONResponse(status_code=401, content={"detail": "Invalid JWT token"})
+            return JSONResponse(status_code=401, content={"detail": "Invalid JWT token"}, headers=_cors_headers(request))
 
     if API_KEY:
         key = request.headers.get("X-API-Key", "")
         if key == API_KEY:
             return await call_next(request)
-        return JSONResponse(status_code=403, content={"detail": "Invalid or missing API key"})
+        return JSONResponse(status_code=403, content={"detail": "Invalid or missing API key"}, headers=_cors_headers(request))
 
-    return await call_next(request)
+    return JSONResponse(status_code=401, content={"detail": "Authentication required"}, headers=_cors_headers(request))
 
 
 # ---- JWT token endpoint ----
@@ -144,6 +172,7 @@ def login(request: Request, body: TokenRequest):
     expire = datetime.now(UTC) + timedelta(minutes=JWT_EXPIRE_MINUTES)
     payload = {"sub": body.username, "exp": expire}
     token = jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+    log_audit_event(body.username, "auth.login.success", "auth.token", {})
     return TokenResponse(access_token=token, expires_in=JWT_EXPIRE_MINUTES * 60)
 
 
@@ -155,6 +184,13 @@ app.include_router(alerts.router, prefix="/alerts", tags=["Alerts"])
 app.include_router(incidents.router, prefix="/incidents", tags=["Incidents"])
 app.include_router(hosts.router, prefix="/hosts", tags=["Hosts"])
 app.include_router(metrics.router, prefix="/metrics/summary", tags=["Metrics"])
+app.include_router(settings.router, prefix="/settings", tags=["Settings"])
+app.include_router(reports.router, prefix="/reports", tags=["Reports"])
+app.include_router(audit.router, prefix="/audit", tags=["Audit"])
+app.include_router(fleet.router, prefix="/fleet", tags=["Fleet"])
+app.include_router(hunts.router, prefix="/hunts", tags=["Hunts"])
+app.include_router(soar.router, prefix="/soar", tags=["SOAR"])
+app.include_router(summary.router, prefix="/summary", tags=["Summary"])
 app.include_router(ws_router, tags=["WebSocket"])
 app.include_router(prom_router, tags=["Prometheus"])
 
@@ -183,6 +219,13 @@ def force_train():
         "trained": ok,
         "samples": len(orchestrator.detector.training_data),
     }
+
+
+@app.post("/admin/reload-rules", tags=["Admin"])
+def reload_rules():
+    count = orchestrator.correlator.reload_rules()
+    log_audit_event("admin", "rules.reload", "admin.reload-rules", {"loaded": count})
+    return {"loaded_rules": count}
 
 
 @app.post("/admin/simulate", tags=["Admin"])

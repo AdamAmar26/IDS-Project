@@ -1,5 +1,10 @@
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
+
+import yaml
+
+from app.config import CORRELATION_RULES_PATH, FEATURE_NAMES
 
 SEVERITY_THRESHOLDS = [
     ("critical", 8),
@@ -38,6 +43,57 @@ def _same_host_recent_anomalies(
 
 class CorrelationEngine:
     """Transparent rules + scoring correlation layer (10 rules)."""
+    def __init__(self):
+        self.dynamic_rules: list[dict[str, Any]] = []
+        self.reload_rules()
+
+    def reload_rules(self) -> int:
+        path = Path(CORRELATION_RULES_PATH)
+        if not path.exists():
+            self.dynamic_rules = []
+            return 0
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        self.dynamic_rules = list(data.get("rules", []))
+        return len(self.dynamic_rules)
+
+    @staticmethod
+    def _resolve_value(rule_value: Any, features: dict[str, Any], context: dict[str, Any], alert_data: dict[str, Any]) -> Any:
+        if isinstance(rule_value, str) and rule_value.startswith("feature:"):
+            key = rule_value.split(":", 1)[1]
+            if key in FEATURE_NAMES:
+                return features.get(key)
+        if isinstance(rule_value, str) and rule_value.startswith("context:"):
+            key = rule_value.split(":", 1)[1]
+            return context.get(key)
+        if rule_value == "anomaly_score":
+            return alert_data.get("anomaly_score", 0)
+        return rule_value
+
+    def _apply_dynamic_rules(
+        self,
+        alert_data: dict[str, Any],
+        features: dict[str, Any],
+        context: dict[str, Any],
+        risk: int,
+        triggered: list[str],
+    ) -> int:
+        for rule in self.dynamic_rules:
+            op = rule.get("op", "gt")
+            left = self._resolve_value(rule.get("left"), features, context, alert_data)
+            right = self._resolve_value(rule.get("right"), features, context, alert_data)
+            matched = False
+            if op == "gt":
+                matched = (left or 0) > (right or 0)
+            elif op == "gte":
+                matched = (left or 0) >= (right or 0)
+            elif op == "eq":
+                matched = left == right
+            elif op == "contains":
+                matched = isinstance(left, (list, set, tuple)) and right in left
+            if matched:
+                risk += int(rule.get("risk_delta", 1))
+                triggered.append(str(rule.get("name", "dynamic_rule")))
+        return risk
 
     def evaluate(
         self,
@@ -113,6 +169,8 @@ class CorrelationEngine:
         ):
             risk += 1
             triggered.append("off_hours_escalation")
+
+        risk = self._apply_dynamic_rules(alert_data, features, context, risk, triggered)
 
         severity = "low"
         for sev, threshold in SEVERITY_THRESHOLDS:

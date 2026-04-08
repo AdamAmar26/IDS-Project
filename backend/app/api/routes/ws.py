@@ -5,7 +5,10 @@ import json
 import logging
 from typing import Any
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
+from jose import JWTError, jwt
+
+from app.config import JWT_ALGORITHM, JWT_SECRET
 
 logger = logging.getLogger(__name__)
 
@@ -56,8 +59,24 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 
+def _validate_ws_token(token: str | None) -> bool:
+    """Validate JWT token for WebSocket connections."""
+    if not token:
+        return False
+    try:
+        jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        return True
+    except JWTError:
+        return False
+
+
 @router.websocket("/ws/events")
-async def websocket_events(websocket: WebSocket):
+async def websocket_events(websocket: WebSocket, token: str | None = Query(default=None)):
+    if not _validate_ws_token(token):
+        await websocket.accept()
+        await websocket.close(code=4001, reason="Authentication required")
+        return
+
     await manager.connect(websocket)
     try:
         while True:

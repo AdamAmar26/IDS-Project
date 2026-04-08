@@ -15,6 +15,7 @@ from app.config import (
     MIN_TRAINING_SAMPLES,
     RAW_EVENT_RETENTION_DAYS,
     RETRAIN_INTERVAL_HOURS,
+    NOTIFY_ON_SEVERITY_INCREASE,
     WINDOW_SECONDS,
 )
 from app.correlation.engine import CorrelationEngine
@@ -33,6 +34,9 @@ from app.features.pipeline import compute_context, compute_features
 from app.mitre.mapper import MitreMapper
 from app.threat_intel.enricher import ThreatIntelEnricher
 from app.threat_intel.feed_updater import FeedUpdateScheduler
+from app.services.notifications import NotificationDispatcher
+from app.services.audit import log_audit_event
+from app.api.routes.prometheus import record_alert, record_incident, update_model_gauges
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +53,7 @@ class Orchestrator:
         self.mitre_mapper = MitreMapper()
         self.threat_enricher = ThreatIntelEnricher()
         self.feed_updater = FeedUpdateScheduler()
+        self.notifications = NotificationDispatcher()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._last_retrain_time = datetime.now(UTC)
@@ -84,8 +89,21 @@ class Orchestrator:
         result = self.detector.train(force=True)
         if result:
             self._update_baseline()
+            self._update_prometheus_gauges()
             logger.info("Force-train completed")
         return result
+
+    def _update_prometheus_gauges(self):
+        db = SessionLocal()
+        try:
+            active = db.query(Incident).filter(Incident.status == "open").count()
+            update_model_gauges(
+                self.detector.is_trained,
+                len(self.detector.training_data),
+                active,
+            )
+        finally:
+            db.close()
 
     # ------------------------------------------------------------------
 
@@ -116,6 +134,7 @@ class Orchestrator:
             just_trained = self.detector.add_training_sample(features)
             if just_trained:
                 self._update_baseline()
+                self._update_prometheus_gauges()
                 logger.info("Model trained — switching to detection mode")
             else:
                 logger.info(
@@ -134,6 +153,7 @@ class Orchestrator:
         # --- detection phase ---
         score, is_anomaly, top_feats = self.detector.score(features)
         alert_id = self._persist_alert(fw_id, score, is_anomaly, top_feats)
+        record_alert(HOST_ID, score, is_anomaly)
 
         self._broadcast("alert", {
             "alert_id": alert_id,
@@ -413,6 +433,7 @@ class Orchestrator:
             kill_chain = (mitre_info or {}).get("kill_chain_phase", "unknown")
 
             if open_incident:
+                previous_severity = open_incident.severity
                 open_incident.risk_score = max(
                     open_incident.risk_score, correlation["risk_score"],
                 )
@@ -428,6 +449,7 @@ class Orchestrator:
                 if alert and alert not in open_incident.alerts:
                     open_incident.alerts.append(alert)
                 incident_id = open_incident.id
+                is_new_incident = False
             else:
                 inc = Incident(
                     host_id=HOST_ID,
@@ -446,14 +468,39 @@ class Orchestrator:
                 db.add(inc)
                 db.flush()
                 incident_id = inc.id
+                previous_severity = "low"
+                is_new_incident = True
 
             db.commit()
+            should_notify = is_new_incident or (
+                NOTIFY_ON_SEVERITY_INCREASE
+                and previous_severity != correlation["severity"]
+            )
+            if should_notify:
+                payload = {
+                    "host_id": HOST_ID,
+                    "severity": correlation["severity"],
+                    "risk_score": correlation["risk_score"],
+                    "summary": explanation["summary"],
+                    "timestamp": datetime.now(UTC).isoformat(),
+                }
+                self.notifications.send_incident_created(incident_id, payload)
+                log_audit_event(
+                    "system",
+                    "incident.notification.sent",
+                    f"incidents/{incident_id}",
+                    {"severity": correlation["severity"], "new": is_new_incident},
+                )
+
+            record_incident(correlation["severity"])
+            self._update_prometheus_gauges()
 
             self._broadcast("incident", {
                 "incident_id": incident_id,
                 "host_id": HOST_ID,
                 "severity": correlation["severity"],
                 "risk_score": correlation["risk_score"],
+                "summary": explanation["summary"],
                 "mitre_techniques": [t.get("id") for t in mitre_techniques],
                 "timestamp": datetime.now(UTC).isoformat(),
             })

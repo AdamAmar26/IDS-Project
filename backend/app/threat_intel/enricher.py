@@ -30,24 +30,47 @@ def _is_private(ip: str) -> bool:
 
 
 class ThreatIntelEnricher:
-    """Check IPs against a local blocklist and optionally AbuseIPDB."""
+    """Check IPs against a local blocklist and optionally AbuseIPDB.
+
+    Supports hot-reload: call `reload()` after the feed updater writes
+    a new blocklist to pick up changes without restarting the process.
+    """
 
     def __init__(self):
         self._blocklist: set[str] = set()
+        self._blocklist_mtime: float = 0.0
         self._load_blocklist()
+
+    def reload(self):
+        """Force-reload the blocklist from disk."""
+        self._load_blocklist()
+
+    def _check_and_reload_if_changed(self):
+        """Reload blocklist if the file has been modified since last load."""
+        try:
+            if BLOCKLIST_PATH.exists():
+                mtime = BLOCKLIST_PATH.stat().st_mtime
+                if mtime > self._blocklist_mtime:
+                    self._load_blocklist()
+        except OSError:
+            pass
 
     def _load_blocklist(self):
         if BLOCKLIST_PATH.exists():
             try:
+                new_set: set[str] = set()
                 for line in BLOCKLIST_PATH.read_text().splitlines():
                     line = line.strip()
                     if line and not line.startswith("#"):
-                        self._blocklist.add(line)
+                        new_set.add(line)
+                self._blocklist = new_set
+                self._blocklist_mtime = BLOCKLIST_PATH.stat().st_mtime
                 logger.info("Loaded %d IPs from local blocklist", len(self._blocklist))
             except Exception as exc:
                 logger.warning("Could not load blocklist: %s", exc)
 
     def check_local(self, ips: list[str]) -> list[dict]:
+        self._check_and_reload_if_changed()
         hits: list[dict] = []
         for ip in ips:
             if _is_private(ip):

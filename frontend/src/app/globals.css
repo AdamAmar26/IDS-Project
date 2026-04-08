@@ -4,6 +4,25 @@
 
 @layer base {
   :root {
+    --background: 0 0% 100%;
+    --foreground: 224 71% 4%;
+    --card: 0 0% 100%;
+    --card-foreground: 224 71% 4%;
+    --primary: 210 100% 44%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 14% 96%;
+    --secondary-foreground: 224 71% 4%;
+    --muted: 220 14% 96%;
+    --muted-foreground: 220 9% 46%;
+    --accent: 220 14% 92%;
+    --accent-foreground: 224 71% 4%;
+    --destructive: 0 72% 51%;
+    --border: 220 13% 91%;
+    --ring: 210 100% 44%;
+    --radius: 0.5rem;
+  }
+
+  .dark {
     --background: 224 71% 4%;
     --foreground: 213 31% 91%;
     --card: 224 71% 6%;
@@ -19,7 +38,6 @@
     --destructive: 0 63% 51%;
     --border: 216 34% 17%;
     --ring: 210 100% 56%;
-    --radius: 0.5rem;
   }
 
   * {
@@ -29,5 +47,27 @@
   body {
     background-color: hsl(var(--background));
     color: hsl(var(--foreground));
+  }
+}
+
+@layer utilities {
+  .animate-in {
+    animation: animateIn 200ms ease-out;
+  }
+
+  .slide-in-from-right-5 {
+    --tw-enter-translate-x: 1.25rem;
+  }
+
+  @keyframes animateIn {
+    from {
+      opacity: 0;
+      transform: translateX(var(--tw-enter-translate-x, 0))
+        translateY(var(--tw-enter-translate-y, 0));
+    }
+    to {
+      opacity: 1;
+      transform: translateX(0) translateY(0);
+    }
   }
 }

@@ -1,0 +1,11 @@
+rules:
+  - name: excessive_dns_queries
+    left: feature:dns_query_count
+    op: gt
+    right: 30
+    risk_delta: 2
+  - name: high_sensitive_file_access
+    left: feature:sensitive_file_access_count
+    op: gte
+    right: 2
+    risk_delta: 3

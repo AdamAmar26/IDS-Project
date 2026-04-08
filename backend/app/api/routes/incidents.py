@@ -11,8 +11,9 @@ from app.api.schemas import (
     IncidentNoteOut,
     IncidentOut,
 )
-from app.db.models import Incident, IncidentNote
+from app.db.models import Incident, IncidentNote, RawEvent
 from app.db.session import get_db
+from app.services.audit import log_audit_event
 
 router = APIRouter()
 
@@ -68,13 +69,22 @@ def get_incident(incident_id: int, db: Session = Depends(get_db)):
     return _to_out(inc)
 
 
+VALID_STATUSES = {"open", "acknowledged", "investigating", "resolved", "closed"}
+
+
 @router.patch("/{incident_id}/status")
 def update_status(incident_id: int, status: str, db: Session = Depends(get_db)):
+    if status not in VALID_STATUSES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid status. Must be one of: {', '.join(sorted(VALID_STATUSES))}",
+        )
     inc = db.get(Incident, incident_id)
     if not inc:
         raise HTTPException(status_code=404, detail="Incident not found")
     inc.status = status
     db.commit()
+    log_audit_event("admin", "incident.status.update", f"incidents/{incident_id}", {"status": status})
     return {"id": incident_id, "status": status}
 
 
@@ -102,6 +112,7 @@ def add_note(incident_id: int, body: IncidentNoteIn, db: Session = Depends(get_d
     db.add(note)
     db.commit()
     db.refresh(note)
+    log_audit_event(body.author, "incident.note.add", f"incidents/{incident_id}", {})
     return note
 
 
@@ -178,4 +189,51 @@ def export_report(
             },
         )
 
+    log_audit_event("admin", "incident.report.export", f"incidents/{incident_id}", {"format": fmt})
     return report
+
+
+@router.get("/{incident_id}/timeline")
+def incident_timeline(incident_id: int, db: Session = Depends(get_db)):
+    inc = db.get(Incident, incident_id)
+    if not inc:
+        raise HTTPException(status_code=404, detail="Incident not found")
+    alert_items = [
+        {
+            "type": "alert",
+            "time": a.created_at.isoformat() if a.created_at else "",
+            "id": a.id,
+            "title": f"Alert #{a.id}",
+            "detail": f"score={a.anomaly_score:.3f} anomaly={a.is_anomaly}",
+        }
+        for a in inc.alerts
+    ]
+    note_items = [
+        {
+            "type": "note",
+            "time": n.created_at.isoformat() if n.created_at else "",
+            "id": n.id,
+            "title": f"Note by {n.author}",
+            "detail": n.body,
+        }
+        for n in inc.notes
+    ]
+    raw_items = (
+        db.query(RawEvent)
+        .filter(RawEvent.host_id == inc.host_id)
+        .order_by(RawEvent.timestamp.desc())
+        .limit(50)
+        .all()
+    )
+    event_items = [
+        {
+            "type": "event",
+            "time": r.timestamp.isoformat() if r.timestamp else "",
+            "id": r.id,
+            "title": r.event_type,
+            "detail": (r.data if isinstance(r.data, str) else str(r.data))[:200],
+        }
+        for r in raw_items
+    ]
+    items = sorted(alert_items + note_items + event_items, key=lambda i: i["time"], reverse=True)
+    return {"incident_id": incident_id, "items": items}

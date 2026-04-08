@@ -29,11 +29,31 @@ ADMIN_PASSWORD = os.environ.get("IDS_ADMIN_PASSWORD", "admin")
 
 CORS_ORIGINS: list[str] = [
     o.strip()
-    for o in os.environ.get("IDS_CORS_ORIGINS", "http://localhost:3000").split(",")
+    for o in os.environ.get(
+        "IDS_CORS_ORIGINS",
+        "http://localhost:3000,http://localhost:3001,http://localhost:3002,http://localhost:3003",
+    ).split(",")
     if o.strip()
 ]
 
 AUTH_RATE_LIMIT = os.environ.get("IDS_AUTH_RATE_LIMIT", "10/minute")
+TEAMS_WEBHOOK_URL = os.environ.get("IDS_TEAMS_WEBHOOK_URL", "")
+GENERIC_WEBHOOK_URL = os.environ.get("IDS_GENERIC_WEBHOOK_URL", "")
+SMTP_HOST = os.environ.get("IDS_SMTP_HOST", "")
+SMTP_PORT = int(os.environ.get("IDS_SMTP_PORT", "587"))
+SMTP_USER = os.environ.get("IDS_SMTP_USER", "")
+SMTP_PASSWORD = os.environ.get("IDS_SMTP_PASSWORD", "")
+ALERT_EMAIL_TO = os.environ.get("IDS_ALERT_EMAIL_TO", "")
+ALERT_EMAIL_FROM = os.environ.get("IDS_ALERT_EMAIL_FROM", "")
+NOTIFY_ON_SEVERITY_INCREASE = os.environ.get(
+    "IDS_NOTIFY_ON_SEVERITY_INCREASE", "false"
+).lower() in ("1", "true", "yes")
+CORRELATION_RULES_PATH = os.environ.get(
+    "IDS_CORRELATION_RULES_PATH", "config/correlation_rules.yaml"
+)
+SOAR_ENABLED = os.environ.get("IDS_SOAR_ENABLED", "false").lower() in (
+    "1", "true", "yes"
+)
 
 RAW_EVENT_RETENTION_DAYS = int(os.environ.get("IDS_RAW_EVENT_RETENTION_DAYS", "7"))
 FEATURE_WINDOW_RETENTION_DAYS = int(

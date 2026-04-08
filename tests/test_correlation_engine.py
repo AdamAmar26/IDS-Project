@@ -90,3 +90,18 @@ def test_severity_thresholds():
         recent,
     )
     assert result["severity"] in ("high", "critical")
+
+
+def test_dynamic_rules_from_yaml_are_applied():
+    engine = CorrelationEngine()
+    result = engine.evaluate(
+        {
+            "anomaly_score": 0.2,
+            "is_anomaly": True,
+            "features": {"dns_query_count": 35, "sensitive_file_access_count": 0},
+            "context": {},
+            "created_at": datetime.now(UTC),
+        },
+        [],
+    )
+    assert "excessive_dns_queries" in result["triggered_rules"]
