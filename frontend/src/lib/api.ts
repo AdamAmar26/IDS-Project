@@ -233,7 +233,17 @@ export const api = {
   },
   emailWeeklyReport: () => apiFetch("/reports/weekly/email", { method: "POST" }),
   getAuditEvents: () => apiFetch<Array<{ id: number; actor: string; action: string; resource: string; metadata: Record<string, unknown>; created_at: string }>>("/audit"),
-  getFleetSummary: () => apiFetch<Array<{ host_id: string; alert_count: number; incident_count: number }>>("/fleet/summary"),
+  getFleetSummary: () =>
+    apiFetch<
+      Array<{
+        host_id: string;
+        alert_count: number;
+        incident_count: number;
+        open_incidents: number;
+        last_seen: string | null;
+        risk_score: number;
+      }>
+    >("/fleet/summary"),
   runSoarAction: (action: string, target: string, dry_run = true) =>
     apiFetch<{ ok: boolean; dry_run?: boolean; command?: string; stdout?: string; stderr?: string }>(
       "/soar/action",
