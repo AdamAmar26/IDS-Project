@@ -8,11 +8,10 @@ from typing import Any
 import httpx
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
-from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.config import OLLAMA_MODEL, OLLAMA_URL
-from app.db.models import Alert, Incident, RawEvent
+from app.db.models import Alert, Incident
 from app.db.session import get_db
 from app.services.orchestrator import get_orchestrator
 
@@ -52,19 +51,27 @@ class SummaryResponse(BaseModel):
 
 
 def _build_briefing_prompt(data: SummaryData) -> str:
-    return f"""You are the AI analyst for a Security Operations Center. Generate a concise shift briefing (3-4 sentences max) for the incoming SOC team based on the following 24-hour metrics:
-
-- Open incidents: {data.open_incidents}
-- New incidents (24h): {data.total_incidents_24h}
-- Total alerts (24h): {data.alerts_24h} ({data.anomaly_alerts_24h} anomalies)
-- Hosts at risk: {data.hosts_at_risk}
-- Severity breakdown: Critical={data.severity_counts.critical}, High={data.severity_counts.high}, Medium={data.severity_counts.medium}, Low={data.severity_counts.low}
-- Top triggered rules: {', '.join(data.top_rules) if data.top_rules else 'None'}
-- Threat intel hits: {data.threat_intel_hits_24h}
-- Trend: {data.trend}
-- Detection model: {data.model_health}
-
-Write in a direct, professional tone. Mention the most critical items first. If there are no incidents, say the environment is calm but monitoring continues. Do NOT use markdown formatting."""
+    sev = data.severity_counts
+    rules = ", ".join(data.top_rules) if data.top_rules else "None"
+    return (
+        "You are the AI analyst for a Security Operations Center. Generate "
+        "a concise shift briefing (3-4 sentences max) for the incoming SOC "
+        "team based on the following 24-hour metrics:\n\n"
+        f"- Open incidents: {data.open_incidents}\n"
+        f"- New incidents (24h): {data.total_incidents_24h}\n"
+        f"- Total alerts (24h): {data.alerts_24h} "
+        f"({data.anomaly_alerts_24h} anomalies)\n"
+        f"- Hosts at risk: {data.hosts_at_risk}\n"
+        f"- Severity breakdown: Critical={sev.critical}, High={sev.high}, "
+        f"Medium={sev.medium}, Low={sev.low}\n"
+        f"- Top triggered rules: {rules}\n"
+        f"- Threat intel hits: {data.threat_intel_hits_24h}\n"
+        f"- Trend: {data.trend}\n"
+        f"- Detection model: {data.model_health}\n\n"
+        "Write in a direct, professional tone. Mention the most critical "
+        "items first. If there are no incidents, say the environment is calm "
+        "but monitoring continues. Do NOT use markdown formatting."
+    )
 
 
 def _template_briefing(data: SummaryData) -> str:
@@ -73,16 +80,19 @@ def _template_briefing(data: SummaryData) -> str:
 
     if data.severity_counts.critical > 0:
         parts.append(
-            f"CRITICAL: {data.severity_counts.critical} critical-severity incident(s) require immediate attention."
+            f"CRITICAL: {data.severity_counts.critical} critical-severity "
+            "incident(s) require immediate attention."
         )
     elif data.severity_counts.high > 0:
         parts.append(
-            f"There are {data.severity_counts.high} high-severity incident(s) that should be reviewed promptly."
+            f"There are {data.severity_counts.high} high-severity incident(s) "
+            "that should be reviewed promptly."
         )
 
     if data.open_incidents > 0:
         parts.append(
-            f"{data.open_incidents} incident(s) are currently open with {data.alerts_24h} alerts generated in the last 24 hours."
+            f"{data.open_incidents} incident(s) are currently open with "
+            f"{data.alerts_24h} alerts generated in the last 24 hours."
         )
     else:
         parts.append(
@@ -91,20 +101,28 @@ def _template_briefing(data: SummaryData) -> str:
 
     if data.anomaly_alerts_24h > 0:
         parts.append(
-            f"{data.anomaly_alerts_24h} anomaly detection(s) were flagged across {data.hosts_at_risk} host(s)."
+            f"{data.anomaly_alerts_24h} anomaly detection(s) were flagged "
+            f"across {data.hosts_at_risk} host(s)."
         )
 
     if data.threat_intel_hits_24h > 0:
         parts.append(
-            f"{data.threat_intel_hits_24h} threat intelligence match(es) detected — review correlated incidents."
+            f"{data.threat_intel_hits_24h} threat intelligence match(es) "
+            "detected — review correlated incidents."
         )
 
     if data.model_health == "training":
         parts.append(
-            "The detection model is still in the training phase; baseline accuracy will improve as more data is collected."
+            "The detection model is still in the training phase; baseline "
+            "accuracy will improve as more data is collected."
         )
 
-    return " ".join(parts) if parts else "System is initializing. Monitoring has begun and metrics will populate shortly."
+    if parts:
+        return " ".join(parts)
+    return (
+        "System is initializing. Monitoring has begun and metrics will "
+        "populate shortly."
+    )
 
 
 def _gather_data(db: Session) -> SummaryData:

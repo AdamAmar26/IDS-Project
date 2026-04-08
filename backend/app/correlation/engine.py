@@ -57,7 +57,12 @@ class CorrelationEngine:
         return len(self.dynamic_rules)
 
     @staticmethod
-    def _resolve_value(rule_value: Any, features: dict[str, Any], context: dict[str, Any], alert_data: dict[str, Any]) -> Any:
+    def _resolve_value(
+        rule_value: Any,
+        features: dict[str, Any],
+        context: dict[str, Any],
+        alert_data: dict[str, Any],
+    ) -> Any:
         if isinstance(rule_value, str) and rule_value.startswith("feature:"):
             key = rule_value.split(":", 1)[1]
             if key in FEATURE_NAMES:

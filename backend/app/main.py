@@ -43,8 +43,8 @@ from app.config import (
     validate_security_defaults,
 )
 from app.db.session import init_db
-from app.services.orchestrator import get_orchestrator
 from app.services.audit import log_audit_event
+from app.services.orchestrator import get_orchestrator
 
 try:
     from pythonjsonlogger import jsonlogger
@@ -139,15 +139,30 @@ async def check_auth(request: Request, call_next):
             jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
             return await call_next(request)
         except JWTError:
-            return JSONResponse(status_code=401, content={"detail": "Invalid JWT token"}, headers=_cors_headers(request))
+            hdrs = _cors_headers(request)
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "Invalid JWT token"},
+                headers=hdrs,
+            )
 
     if API_KEY:
         key = request.headers.get("X-API-Key", "")
         if key == API_KEY:
             return await call_next(request)
-        return JSONResponse(status_code=403, content={"detail": "Invalid or missing API key"}, headers=_cors_headers(request))
+        hdrs = _cors_headers(request)
+        return JSONResponse(
+            status_code=403,
+            content={"detail": "Invalid or missing API key"},
+            headers=hdrs,
+        )
 
-    return JSONResponse(status_code=401, content={"detail": "Authentication required"}, headers=_cors_headers(request))
+    hdrs = _cors_headers(request)
+    return JSONResponse(
+        status_code=401,
+        content={"detail": "Authentication required"},
+        headers=hdrs,
+    )
 
 
 # ---- JWT token endpoint ----

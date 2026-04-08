@@ -7,15 +7,16 @@ from typing import Any
 
 import numpy as np
 
+from app.api.routes.prometheus import record_alert, record_incident, update_model_gauges
 from app.collectors.host_windows import WindowsHostCollector
 from app.config import (
     FEATURE_NAMES,
     FEATURE_WINDOW_RETENTION_DAYS,
     HOST_ID,
     MIN_TRAINING_SAMPLES,
+    NOTIFY_ON_SEVERITY_INCREASE,
     RAW_EVENT_RETENTION_DAYS,
     RETRAIN_INTERVAL_HOURS,
-    NOTIFY_ON_SEVERITY_INCREASE,
     WINDOW_SECONDS,
 )
 from app.correlation.engine import CorrelationEngine
@@ -32,11 +33,10 @@ from app.explanation.llm_explainer import OllamaExplainer
 from app.explanation.templates import AlertExplainer
 from app.features.pipeline import compute_context, compute_features
 from app.mitre.mapper import MitreMapper
+from app.services.audit import log_audit_event
+from app.services.notifications import NotificationDispatcher
 from app.threat_intel.enricher import ThreatIntelEnricher
 from app.threat_intel.feed_updater import FeedUpdateScheduler
-from app.services.notifications import NotificationDispatcher
-from app.services.audit import log_audit_event
-from app.api.routes.prometheus import record_alert, record_incident, update_model_gauges
 
 logger = logging.getLogger(__name__)
 

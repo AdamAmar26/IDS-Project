@@ -86,7 +86,12 @@ def run_hunt(
         aq = aq.filter(Alert.created_at <= datetime.fromisoformat(filters["until"]))
     alerts = aq.order_by(Alert.created_at.desc()).limit(limit).all()
 
-    log_audit_event(actor, "hunt.run", f"hunts/{hunt_id}", {"results_events": len(events), "results_alerts": len(alerts)})
+    log_audit_event(
+        actor,
+        "hunt.run",
+        f"hunts/{hunt_id}",
+        {"results_events": len(events), "results_alerts": len(alerts)},
+    )
 
     return {
         "total": len(events) + len(alerts),

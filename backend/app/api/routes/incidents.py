@@ -84,7 +84,12 @@ def update_status(incident_id: int, status: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Incident not found")
     inc.status = status
     db.commit()
-    log_audit_event("admin", "incident.status.update", f"incidents/{incident_id}", {"status": status})
+    log_audit_event(
+        "admin",
+        "incident.status.update",
+        f"incidents/{incident_id}",
+        {"status": status},
+    )
     return {"id": incident_id, "status": status}
 
 

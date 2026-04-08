@@ -35,7 +35,8 @@ def _set_sqlite_wal(dbapi_connection, connection_record):
 
 def _add_missing_columns():
     """Add columns defined in models but absent from the SQLite tables."""
-    from sqlalchemy import inspect as sa_inspect, text
+    from sqlalchemy import inspect as sa_inspect
+    from sqlalchemy import text
 
     inspector = sa_inspect(engine)
     with engine.connect() as conn:

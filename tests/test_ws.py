@@ -50,5 +50,5 @@ def test_websocket_receives_broadcast(client):
             parsed = json.loads(msg)
             assert parsed["type"] == "test_alert"
             assert parsed["data"]["host_id"] == "TEST"
-        except Exception:
+        except Exception:  # noqa: S110
             pass

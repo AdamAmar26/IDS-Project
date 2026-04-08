@@ -1,11 +1,11 @@
 import ipaddress
+import os
 import subprocess
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, field_validator
 
 from app.api.deps import require_jwt
-from app.config import SOAR_ENABLED
 from app.services.audit import log_audit_event
 
 router = APIRouter()
@@ -25,13 +25,16 @@ class SoarActionIn(BaseModel):
         except ValueError:
             raise ValueError(
                 "Target must be a valid IPv4 or IPv6 address"
-            )
+            ) from None
         return v.strip()
 
 
 @router.post("/action")
 def run_soar_action(body: SoarActionIn, actor: str = Depends(require_jwt)):
-    if not SOAR_ENABLED:
+    soar_on = os.environ.get("IDS_SOAR_ENABLED", "false").lower() in (
+        "1", "true", "yes",
+    )
+    if not soar_on:
         raise HTTPException(status_code=403, detail="SOAR is disabled")
     if body.action != "block_ip":
         raise HTTPException(status_code=400, detail="Unsupported action")
