@@ -62,7 +62,7 @@ def run_hunt(
     if not hunt:
         raise HTTPException(status_code=404, detail="Hunt not found")
 
-    filters = hunt.filters or {}
+    filters: dict[str, Any] = hunt.filters or {}
 
     eq = db.query(RawEvent)
     if filters.get("host_id"):

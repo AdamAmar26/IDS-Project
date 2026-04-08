@@ -26,9 +26,11 @@ def weekly_report(
     severity_counts: dict[str, int] = {}
     technique_counts: dict[str, int] = {}
     for inc in rows:
-        severity_counts[inc.severity] = severity_counts.get(inc.severity, 0) + 1
-        for t in (inc.mitre_techniques or []):
-            tid = t.get("id", "unknown")
+        sev: str = str(inc.severity)
+        severity_counts[sev] = severity_counts.get(sev, 0) + 1
+        techniques: list[dict[str, object]] = inc.mitre_techniques or []
+        for t in techniques:
+            tid = str(t.get("id", "unknown"))
             technique_counts[tid] = technique_counts.get(tid, 0) + 1
 
     closed_count = (
@@ -60,7 +62,8 @@ def weekly_report(
         ]
         html += [f"<li>{s}: {c}</li>" for s, c in severity_counts.items()]
         html += ["</ul><h2>Top MITRE techniques</h2><ul>"]
-        html += [f"<li>{t['technique']}: {t['count']}</li>" for t in payload["top_techniques"]]
+        top: list[dict[str, object]] = payload["top_techniques"]  # type: ignore[assignment]
+        html += [f"<li>{t['technique']}: {t['count']}</li>" for t in top]
         html += ["</ul></body></html>"]
         return HTMLResponse("".join(html))
     return payload
