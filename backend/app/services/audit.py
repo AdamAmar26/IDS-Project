@@ -4,6 +4,7 @@ from typing import Any
 
 from app.db.models import AuditEvent
 from app.db.session import SessionLocal
+from sqlalchemy.orm import Session
 
 
 def log_audit_event(
@@ -11,9 +12,9 @@ def log_audit_event(
     action: str,
     resource: str,
     metadata: dict[str, Any] | None = None,
+    db: Session | None = None,
 ) -> None:
-    db = SessionLocal()
-    try:
+    if db is not None:
         db.add(
             AuditEvent(
                 actor=actor or "system",
@@ -23,5 +24,18 @@ def log_audit_event(
             )
         )
         db.commit()
+        return
+
+    session = SessionLocal()
+    try:
+        session.add(
+            AuditEvent(
+                actor=actor or "system",
+                action=action,
+                resource=resource,
+                event_metadata=metadata or {},
+            )
+        )
+        session.commit()
     finally:
-        db.close()
+        session.close()

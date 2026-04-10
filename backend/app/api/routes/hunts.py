@@ -91,6 +91,7 @@ def run_hunt(
         "hunt.run",
         f"hunts/{hunt_id}",
         {"results_events": len(events), "results_alerts": len(alerts)},
+        db=db,
     )
 
     return {
