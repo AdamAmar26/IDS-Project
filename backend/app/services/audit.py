@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from typing import Any
 
+from sqlalchemy.orm import Session
+
 from app.db.models import AuditEvent
 from app.db.session import SessionLocal
-from sqlalchemy.orm import Session
 
 
 def log_audit_event(
